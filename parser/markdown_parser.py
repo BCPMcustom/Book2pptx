@@ -3,7 +3,6 @@ import re, os
 from parser.models.presentation_spec import (SlideSpec, PresentationSpec)
 from html.parser import HTMLParser
 import matplotlib.pyplot as plt
-#from blume import table
 
 class TableParser(HTMLParser):
 
@@ -213,7 +212,11 @@ class MarkdownParser:
 
                 if in_ignore:
                     if line.startswith("# ") or line.startswith("## ") or line.startswith("#### "):
+                        in_ignore = False                    
+                    elif line.startswith("### "):
                         in_ignore = False
+                        i += 1
+                        continue
                     else:
                         i += 1
                         continue
