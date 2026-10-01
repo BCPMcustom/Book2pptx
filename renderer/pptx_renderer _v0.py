@@ -18,43 +18,23 @@ class PowerPointRenderer:
         i = -1
         
         for slide in presentation_spec.slides:
-            callout_count = -1
             i += 1
             slide = prs.slides.add_slide(slide_layout)    
             title = slide.shapes.title
             title.text = presentation_spec.slides[i].title
-            body_shape = slide.shapes.placeholders[0]
+            body_shape = slide.shapes.placeholders[0]         # placeholder used to be set to [1] ...???
+            
+            if presentation_spec.slides[i].bullets:
 
-            for callout in presentation_spec.slides[i].callouts:
-                callout_count += 1  
-                callout = presentation_spec.slides[i].callouts[callout_count]
-              
-                if callout_count == 0:   
-                    title = slide.shapes.title
-                    title.text = presentation_spec.slides[i].title
-                    top = Inches(2)
-                    left = width = height = Inches(1)
-                    txBox = slide.shapes.add_textbox(left, top, width, height)
-                    tf = txBox.text_frame
+                bullet_count = 0
+                bullet = presentation_spec.slides[i].bullets
+
+                for bullet[bullet_count] in presentation_spec.slides[i].bullets:
+                    tf = body_shape.text_frame
                     p = tf.add_paragraph()
-                    p.text = presentation_spec.slides[i].callouts[callout_count]
-                    p.font.size = Pt(28)
-                    continue
-             
-                elif callout_count >= 1:
-                    slide = prs.slides.add_slide(slide_layout)   
-                    title = slide.shapes.title
-                    title.text = presentation_spec.slides[i].title
-                    top = Inches(2)
-                    left = width = height = Inches(1)
-                    txBox = slide.shapes.add_textbox(left, top, width, height)
-                    tf = txBox.text_frame
-                    p = tf.add_paragraph()
-                    p.text = presentation_spec.slides[i].callouts[callout_count]
-                    p.font.size = Pt(28)
-                    continue
+                    p.text = presentation_spec.slides[i].bullets[bullet_count]
 
-
+        
             if presentation_spec.slides[i].images:
 
                 img_count = 0
@@ -67,6 +47,22 @@ class PowerPointRenderer:
                     left = top = Inches(1)
                     pic = slide.shapes.add_picture(img_path, left, top)
                     img_count += 1
+
+            
+            if presentation_spec.slides[i].callouts:
+
+                callout_count = 0
+                callout = presentation_spec.slides[i].callouts
+
+                for callout[callout_count] in presentation_spec.slides[i].callouts:
+                    left = top = width = height = Inches(1)
+                    txBox = slide.shapes.add_textbox(left, top, width, height)
+                    tf = txBox.text_frame
+                    p = tf.add_paragraph()
+                    p.text = presentation_spec.slides[i].callouts[callout_count]
+                    p.font.size = Pt(20)
+                    callout_count += 1
+                    
 
 
         slide = prs.slides.add_slide(title_slide_layout)    
