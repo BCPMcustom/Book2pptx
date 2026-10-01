@@ -1,257 +1,275 @@
+"""Markdown parsing for book2pptx.
 
-import re, os
-from parser.models.presentation_spec import (SlideSpec, PresentationSpec)
+Converts a Markdown document into a ``PresentationSpec``
+
+!!! VERSION 1.0 code -> refactored by Claude from Ben's code !!!
+
+
+Supported syntax
+----------------
+``# Text``        First occurrence sets the presentation title; any later
+                  occurrence sets the closing slide title.
+``## Text``       Starts a new slide.
+``- Text``        Adds a bullet to the current slide.
+``![alt](path)``  Adds an image to the current slide. Relative paths are
+                  resolved against the directory of the Markdown file.
+``#### Text``     Adds a callout to the current slide.
+``### Text``      Opens an ignored region. Content, including HTML tables, is
+                  skipped until the next ``#``, ``##``, or ``####`` line, or
+                  until another ``###`` line, which closes the region and is
+                  itself skipped. Wrap unwanted tables in a pair of ``###``
+                  lines to avoid rendering them.
+``<table>``       HTML tables are rendered to PNG and attached to the current
+                  slide as images.
+"""
+
+from __future__ import annotations
+
+import logging
+import re
 from html.parser import HTMLParser
-import matplotlib.pyplot as plt
+from pathlib import Path
+
+import matplotlib
+
+matplotlib.use("Agg")  # Headless backend: no display or GUI toolkit required.
+import matplotlib.pyplot as plt  # noqa: E402  (must follow matplotlib.use)
+
+from parser.models.presentation_spec import PresentationSpec, SlideSpec  # noqa: E402
+
+logger = logging.getLogger(__name__)
+
+# Maximum characters per cell used when estimating column widths.
+HEADER_LIMIT = 20
+CELL_LIMIT = 40
+
+IMAGE_RE = re.compile(r"!\[(.*?)\]\((.*?)\)")
+
+# Heading prefixes that end an ignored region and are then parsed normally.
+# A '### ' line also ends the region, but it is consumed rather than parsed.
+IGNORE_TERMINATORS = ("# ", "## ", "#### ")
+
+DEFAULT_ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
+
 
 class TableParser(HTMLParser):
+    """Extract the text content of an HTML table as a list of rows."""
 
-    def __init__(self):
+    def __init__(self) -> None:
         super().__init__()
-        self.headers = []
-        self.rows = []
-        self.current_row = []
-        self.current_cell = ""
-        self.in_cell = False
-        self.in_header = False
+        self.rows: list[list[str]] = []
+        self._current_row: list[str] = []
+        self._current_cell: list[str] = []
+        self._in_cell = False
 
-
-    def handle_starttag(self, tag, attrs):
-        
+    def handle_starttag(self, tag: str, attrs) -> None:
         if tag in ("th", "td"):
-            self.in_cell = True
-            self.current_cell = ""
+            self._in_cell = True
+            self._current_cell = []
         elif tag == "tr":
-            self.current_row = []
+            self._current_row = []
 
-    def handle_data(self, data):
-        if self.in_cell:
-            self.current_cell += data
+    def handle_data(self, data: str) -> None:
+        if self._in_cell:
+            self._current_cell.append(data)
 
-    def handle_endtag(self, tag):
+    def handle_endtag(self, tag: str) -> None:
         if tag in ("th", "td"):
-            self.current_row.append(self.current_cell.strip())
-            self.in_cell = False
-        elif tag == "tr":
-            if self.current_row:
-                if self.in_header:
-                    self.headers.append(self.current_row)
-                else:
-                    self.rows.append(self.current_row)
+            self._current_row.append("".join(self._current_cell).strip())
+            self._in_cell = False
+        elif tag == "tr" and self._current_row:
+            self.rows.append(self._current_row)
 
 
 class HTMLTableRenderer:
+    """Render an HTML table to a PNG image with Matplotlib.
 
-    def __init__(self):
+    The first row is treated as the header. Images are written to
+    ``output_dir`` as ``table_<n>.png``.
+    """
+
+    def __init__(self, output_dir: Path | str) -> None:
+        self.output_dir = Path(output_dir)
         self.table_count = 0
 
-    def render(self, html_table):
-
-        HEADER_LIMIT = 20
-        CELL_LIMIT = 40
-        total_width = 0
-        column_widths = []
-        display_rows = []
+    def render(self, html_table: str) -> Path | None:
+        """Render ``html_table`` and return the PNG path, or None if it has no cells."""
         parser = TableParser()
         parser.feed(html_table)
-        rows = parser.rows
+        rows = self._pad_rows(parser.rows)
+        if not rows:
+            logger.warning("Skipping HTML table that contains no cells.")
+            return None
 
-        current_dir = os.path.dirname(os.path.abspath(__file__))
-        assets_dir = os.path.join(current_dir, "..", "assets")
-        filename = (f"table_{self.table_count}.png")
-        output_path = os.path.normpath(os.path.join(assets_dir, filename))
+        header, data = rows[0], rows[1:]
+        column_widths = self._column_widths(header, data)
+
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = self.output_dir / f"table_{self.table_count}.png"
         self.table_count += 1
 
-        # Determine the number of columns
-        num_columns = max(len(row) for row in rows)
-
-        # Find the longest cell in each column
-
-        for row_number, row in enumerate(rows):
-            limit = HEADER_LIMIT if row_number == 0 else CELL_LIMIT
-            display_row = []
-
-            for cell in row:
-                if len(cell) > limit:
-                    cell = cell[:limit - 3] + "..."
-                display_row.append(cell)
-            display_rows.append(display_row)
-
-
-        header = rows[0]
-        data = rows[1:]
-
-        for column in range(num_columns):
-            header_length = len(header[column])
-            data_length = max(len(row[column]) for row in data)      
-            longest = max(len(row[column]) if column < len(row) else 0 for row in display_rows)
-            column_widths.append(longest)
-            
-            # Matplotlib's table() does not properly account for header width
-            # when calculating the rendered table geometry. When a header is
-            # wider than the data in that column, reduce total_width to
-            # compensate for Matplotlib's behavior.
-            
-            if header_length > data_length:
-                total_width -= (header_length/data_length)   
-
-        total_width += sum(column_widths)
-        column_widths = [width / total_width for width in column_widths]
-
-
         fig, ax = plt.subplots()
-
-        ax.axis("off")
-
-        table = ax.table(
-            cellText=rows[1:],
-            colLabels=rows[0],
-            loc="center",
-            colWidths=column_widths
-        )
-
-        table.auto_set_font_size(False)
-        table.set_fontsize(8)
-
-        table.scale(1, 1.2)
-
-        plt.savefig(
-            output_path,
-            bbox_inches="tight",
-            dpi=200
-        )
-
-        plt.close(fig)
+        try:
+            ax.axis("off")
+            table = ax.table(
+                cellText=data or [[""] * len(header)],
+                colLabels=header,
+                loc="center",
+                colWidths=column_widths,
+            )
+            table.auto_set_font_size(False)
+            table.set_fontsize(8)
+            table.scale(1, 1.2)
+            fig.savefig(output_path, bbox_inches="tight", dpi=200)
+        finally:
+            plt.close(fig)
 
         return output_path
 
+    @staticmethod
+    def _pad_rows(rows: list[list[str]]) -> list[list[str]]:
+        """Pad ragged rows with empty cells so every row has the same length."""
+        if not rows:
+            return []
+        num_columns = max(len(row) for row in rows)
+        return [row + [""] * (num_columns - len(row)) for row in rows]
+
+    @staticmethod
+    def _truncate(text: str, limit: int) -> str:
+        return text if len(text) <= limit else text[: limit - 3] + "..."
+
+    @classmethod
+    def _column_widths(cls, header: list[str], data: list[list[str]]) -> list[float]:
+        """Estimate relative column widths from the longest cell in each column.
+
+        Cells are truncated to HEADER_LIMIT / CELL_LIMIT before measuring.
+        Matplotlib's table() does not account for header width when it computes
+        the rendered table geometry, so when a header is wider than the data in
+        its column the normalizing total is reduced to compensate.
+        """
+        display_rows = [[cls._truncate(c, HEADER_LIMIT) for c in header]]
+        display_rows += [[cls._truncate(c, CELL_LIMIT) for c in row] for row in data]
+
+        widths: list[int] = []
+        adjustment = 0.0
+        for col in range(len(header)):
+            widths.append(max(len(row[col]) for row in display_rows))
+
+            header_length = len(header[col])
+            data_length = max((len(row[col]) for row in data), default=0)
+            if data_length and header_length > data_length:
+                adjustment -= header_length / data_length
+
+        total = sum(widths) + adjustment
+        if total <= 0:
+            return [1 / len(widths)] * len(widths)  # Degenerate input: equal widths.
+        return [width / total for width in widths]
+
+
 class MarkdownParser:
+    """Parse a Markdown file into a ``PresentationSpec``."""
 
-    def __init__(self):
+    def __init__(self, assets_dir: Path | str | None = None) -> None:
+        self.assets_dir = Path(assets_dir) if assets_dir else DEFAULT_ASSETS_DIR
+        self.table_renderer = HTMLTableRenderer(self.assets_dir)
+        self.base_dir = Path()
+        self._reset()
+
+    def _reset(self) -> None:
+        """Clear per-document state so a parser instance can be reused."""
         self.presentation_title = ""
-        self.slides = []
-        self.current_slide = None
         self.closing_title = ""
-        self.table_renderer = HTMLTableRenderer()
-        self.base_dir = ""
+        self.slides: list[SlideSpec] = []
+        self.current_slide: SlideSpec | None = None
 
-
-    def parse_heading(self, line):
+    def parse_heading(self, line: str) -> None:
         if line.startswith("# "):
-
             text = line[2:].strip()
-
-            if self.presentation_title == "":
+            if not self.presentation_title:
                 self.presentation_title = text
             else:
                 self.closing_title = text
-            
-
         elif line.startswith("## "):
             title = line[3:].strip()
-            print(f"NEW SLIDE: {title}")
+            logger.info("NEW SLIDE: %s", title)
             self.current_slide = SlideSpec(title)
             self.slides.append(self.current_slide)
 
-    def parse_ignore(self, line, in_ignore):
-        if line.startswith("### "):
-            return True
-        return in_ignore
+    def parse_ignore(self, line: str, in_ignore: bool) -> bool:
+        """Return True when a ``###`` line opens an ignored region."""
+        return in_ignore or line.startswith("### ")
 
+    def parse_bullet(self, line: str) -> None:
+        if line.startswith("- ") and self.current_slide:
+            self.current_slide.bullets.append(line[2:].strip())
 
-        
-    def parse_bullet(self, line):
+    def parse_image(self, line: str) -> None:
+        match = IMAGE_RE.search(line)
+        if match:
+            self.add_image(match.group(2))
 
-        if line.startswith("- "):
-            bullet = line[2:].strip()
-            if self.current_slide:
-                self.current_slide.bullets.append(bullet)
+    def add_image(self, image_path: Path | str) -> None:
+        """Attach an image to the current slide as an absolute path."""
+        if self.current_slide is None:
+            logger.warning("Image found before the first slide was ignored: %s", image_path)
+            return
+        self.current_slide.images.append(str((self.base_dir / image_path).resolve()))
 
+    def parse_callouts(self, line: str) -> None:
+        if not line.startswith("#### "):
+            return
+        if self.current_slide is None:
+            logger.warning("Callout found before the first slide was ignored: %s", line)
+            return
+        self.current_slide.callouts.append(line[5:].strip())
 
-    def parse_image(self, line):
+    def _flush_table(self, table_lines: list[str]) -> None:
+        image_path = self.table_renderer.render("\n".join(table_lines))
+        if image_path is not None:
+            self.add_image(image_path)
 
-        IMAGE_RE = r'!\[(.*?)\]\((.*?)\)'
+    def parse(self, filename: Path | str) -> PresentationSpec:
+        path = Path(filename)
+        self.base_dir = path.parent
+        self._reset()
 
-        match = re.search(IMAGE_RE, line)
+        table_lines: list[str] = []
+        in_table = False
+        in_ignore = False
 
-        if match and self.current_slide is not None:
-            filename = match.group(2)
-            full_path = os.path.abspath(os.path.join(self.base_dir, filename))
-            self.current_slide.images.append(full_path)
-
-
-    def parse_callouts(self, line):
-
-        if line.startswith("#### "):
-            text = line[5:].strip()
-            self.current_slide.callouts.append(text)
-
-
-        
-    def parse(self, filename):
-
-        self.base_dir = os.path.dirname(filename)
-
-        with open(filename, encoding="utf-8") as f:
-            
-            lines = f.readlines()
-            
-            table_lines = []
-            in_ignore = False
-            in_table = False
-            
-            i = 0
-
-            while i < len(lines):
-
-                line = lines[i].strip()
-                
+        with path.open(encoding="utf-8") as f:
+            for raw_line in f:
+                line = raw_line.strip()
                 if not line:
-                    i += 1
                     continue
 
                 if in_ignore:
-                    if line.startswith("# ") or line.startswith("## ") or line.startswith("#### "):
-                        in_ignore = False                    
+                    if line.startswith(IGNORE_TERMINATORS):
+                        in_ignore = False  # Resume normal parsing of this line.
                     elif line.startswith("### "):
-                        in_ignore = False
-                        i += 1
+                        in_ignore = False  # Closing marker: consume it and resume.
                         continue
                     else:
-                        i += 1
                         continue
 
-                if "<table" in line:                   
+                # Table markup may span many lines or sit on a single line.
+                if in_table or "<table" in line:
                     in_table = True
-                    table_lines = [line]
-                    i += 1
-                    continue
-                
-                if in_table:
                     table_lines.append(line)
-                    
-                    if "</table>" in line:                        
-                        html_table = "\n".join(table_lines)
-                        image_filename = (self.table_renderer.render(html_table))
-                        image_line = (f"![table]({image_filename})")
-                        self.parse_image(image_line)
+                    if "</table>" in line:
+                        self._flush_table(table_lines)
                         table_lines = []
                         in_table = False
-                        i += 1
-                        continue
-                               
+                    continue
+
                 self.parse_heading(line)
                 self.parse_bullet(line)
                 self.parse_image(line)
                 self.parse_callouts(line)
-
-                i += 1
                 in_ignore = self.parse_ignore(line, in_ignore)
 
         return PresentationSpec(
             title=self.presentation_title,
             slides=self.slides,
-            closing_title=self.closing_title
+            closing_title=self.closing_title,
         )
-
-
