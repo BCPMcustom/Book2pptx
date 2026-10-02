@@ -25,6 +25,7 @@ class PowerPointRenderer:
             title.text = presentation_spec.slides[i].title
             body_shape = slide.shapes.placeholders[0]
 
+
             for callout in presentation_spec.slides[i].callouts:
                 callout_count += 1  
                 callout = presentation_spec.slides[i].callouts[callout_count]
@@ -52,7 +53,17 @@ class PowerPointRenderer:
                     p = tf.add_paragraph()
                     p.text = presentation_spec.slides[i].callouts[callout_count]
                     p.font.size = Pt(28)
-                    continue
+
+
+
+            if presentation_spec.slides[i].bullets:
+                bullet_count = 0
+                bullet = presentation_spec.slides[i].bullets
+                for bullet[bullet_count] in presentation_spec.slides[i].bullets:
+                    tf = body_shape.text_frame
+                    p = tf.add_paragraph()
+                    p.text = presentation_spec.slides[i].bullets[bullet_count]
+                    p.font.size = Pt(22)
 
 
             if presentation_spec.slides[i].images:
