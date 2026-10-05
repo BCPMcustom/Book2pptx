@@ -33,38 +33,18 @@ class PowerPointRenderer:
                 if callout_count == 0:   
                     title = slide.shapes.title
                     title.text = presentation_spec.slides[i].title
-                    top = Inches(2)
-                    left = width = height = Inches(1)
-                    txBox = slide.shapes.add_textbox(left, top, width, height)
-                    tf = txBox.text_frame
-                    p = tf.add_paragraph()
-                    p.text = presentation_spec.slides[i].callouts[callout_count]
-                    p.font.size = Pt(28)
                     continue
              
-                elif callout_count >= 1:
+                elif callout_count > 1:
                     slide = prs.slides.add_slide(slide_layout)   
                     title = slide.shapes.title
                     title.text = presentation_spec.slides[i].title
-                    top = Inches(2)
-                    left = width = height = Inches(1)
-                    txBox = slide.shapes.add_textbox(left, top, width, height)
-                    tf = txBox.text_frame
-                    p = tf.add_paragraph()
-                    p.text = presentation_spec.slides[i].callouts[callout_count]
-                    p.font.size = Pt(28)
-                    if presentation_spec.slides[i].bullets:
-                        bullet_count = -1
-                        bullet = presentation_spec.slides[i].bullets
-                        for bullet in presentation_spec.slides[i].bullets:
-                            bullet_count += 1
-                            print(f"SLIDE {i}:")
-                            print(bullet, "\n\n")
-                            tf = body_shape.text_frame
-                            p = tf.add_paragraph()
-                            p.text = presentation_spec.slides[i].bullets[bullet_count]
-                            p.font.size = Pt(22)
-                            
+                    continue
+
+                    
+
+
+
 
 #            if presentation_spec.slides[i].bullets:
 #                bullet_count = 0
