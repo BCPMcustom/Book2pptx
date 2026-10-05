@@ -1,4 +1,120 @@
 
+
+~~~~~~~~~~~~~~~~~~~~~~
+||   book2pptx.py   ||
+~~~~~~~~~~~~~~~~~~~~~~
+
+
+
+import sys
+import os
+import zipfile
+import glob
+from parser.markdown_parser import (TableParser, HTMLTableRenderer, MarkdownParser)
+from renderer.pptx_renderer import PowerPointRenderer
+from pathlib import Path
+
+def main():
+    # sys.argv[0] is always the script name ('book2pptx.py')
+    # sys.argv[1] will be the first argument passed ('path_to_markdown.md')
+    if len(sys.argv) < 2:
+        print("Error: Please provide a file path.")
+        print("Usage: python3 book2pptx.py <path_to_markdown.md>")
+        sys.exit(1)
+        
+    zip_file_input = sys.argv[1]
+    print(f"Starting book2pptx script with archive: {zip_file_input}")
+
+
+    # 1. Establish where our assets directory lives relative to this main file
+    BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+    ASSETS_DIR = os.path.join(BASE_DIR, "assets")
+
+
+    # -------------------------------------------------------------------------
+    # STEP 1: Unzip the contents of argv[1] into /assets/
+    # -------------------------------------------------------------------------
+    print(f"Extracting {zip_file_input} into /assets/...")
+    try:
+        with zipfile.ZipFile(zip_file_input, 'r') as zip_ref:
+            zip_ref.extractall(ASSETS_DIR)
+    except FileNotFoundError:
+        print(f"Error: Could not find the zip file at '{zip_file_input}'")
+        sys.exit(1)
+    except zipfile.BadZipFile:
+        print(f"Error: '{zip_file_input}' is not a valid zip archive.")
+        sys.exit(1)
+
+ 
+    # -------------------------------------------------------------------------
+    # STEP 2: Search /assets/ for the only .md file
+    # -------------------------------------------------------------------------
+    # glob looks specifically inside the assets folder for any file ending in .md
+    
+    md_search_pattern = os.path.join(ASSETS_DIR, "*.md")
+    found_md_files = glob.glob(md_search_pattern)
+    
+    if not found_md_files:
+        print("Error: No .md file found inside the extracted assets archive.")
+        sys.exit(1)
+        
+    # Grab the target file (assuming there's exactly one as planned)
+    searchResult = found_md_files[0]
+
+    # -------------------------------------------------------------------------
+    # STEP 3: Set input_path = "searchResult"
+    # -------------------------------------------------------------------------
+    
+    input_path = searchResult
+    print(f"Zip extraction complete. Found target markdown: {input_path}")
+    print(f"Processing {input_path} through markdown_parser...")
+    
+    try:
+        # 4. Instantiate your parser and pass the user's terminal variable into it
+        parser = MarkdownParser()
+        presentation = parser.parse(input_path)
+        renderer = PowerPointRenderer()
+        finalPPTX = renderer.render(presentation)
+        new_filename = str(Path(zip_file_input).with_suffix('.pptx'))
+        finalPPTX.save(new_filename)
+        
+        print("Finished processing successfully!")
+
+    except FileNotFoundError as e:
+        print(f"Error: {e}")
+        sys.exit(1)
+    except Exception as e:
+        print(f"An unexpected error occurred: {e}")
+        sys.exit(1)    
+
+    print("Cleaning /assets/ folder...")
+
+    for filename in os.listdir(ASSETS_DIR):
+        file_path = os.path.join(ASSETS_DIR, filename)
+    
+        try:
+            # Check if it is a file and delete it
+            if os.path.isfile(file_path):
+                os.remove(file_path)
+        except Exception as e:
+            print(f"Failed to delete {file_path}. Reason: {e}")
+
+    print("SUCCESS!!!")
+
+if __name__ == "__main__":
+    main()
+
+
+
+
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+||   markdown_parser.py   ||
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+
+
 import re, os
 from parser.models.presentation_spec import (SlideSpec, PresentationSpec)
 from html.parser import HTMLParser
@@ -273,5 +389,123 @@ class MarkdownParser:
             slides=self.slides,
             closing_title=self.closing_title
         )
+
+
+
+
+
+
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+||   presentation_spec.py   ||
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+
+# presentation_spec.py
+
+from dataclasses import dataclass, field
+
+
+@dataclass
+class SlideSpec:
+    title: str
+    bullets: list[str] = field(default_factory=list)
+    images: list[str] = field(default_factory=list)
+    callouts: list[str] = field(default_factory=list)
+
+
+@dataclass
+class PresentationSpec:
+    title: str
+    slides: list[SlideSpec] = field(default_factory=list)
+    closing_title: str = ""
+
+
+
+
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+||   pptx_renderer.py   ||
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+
+import os
+from pptx import Presentation
+from pptx.util import Inches, Pt
+
+
+
+class PowerPointRenderer:
+    def render(self, presentation_spec):
+        prs = Presentation("renderer/templates/Template.pptx")
+        title_slide_layout = prs.slide_layouts[0]          #This layout used to give the title_bar located of title_slide
+        slide_layout = prs.slide_layouts[0]                #This layout used to give title_bar at the top, and a multimedia box
+        slide = prs.slides[0]   
+        title = slide.shapes.title
+        title.text = presentation_spec.title
+
+        raw_path = ""
+        img_path = ""
+        i = -1
+        
+        for slide in presentation_spec.slides:
+            callout_count = -1
+            i += 1
+            slide = prs.slides.add_slide(slide_layout)    
+            title = slide.shapes.title
+            title.text = presentation_spec.slides[i].title
+            body_shape = slide.shapes.placeholders[0]
+
+
+            for callout in presentation_spec.slides[i].callouts:
+                callout_count += 1  
+                callout = presentation_spec.slides[i].callouts[callout_count]
+              
+                if callout_count == 0:   
+                    title = slide.shapes.title
+                    title.text = presentation_spec.slides[i].title
+                    continue
+             
+                elif callout_count > 1:
+                    slide = prs.slides.add_slide(slide_layout)   
+                    title = slide.shapes.title
+                    title.text = presentation_spec.slides[i].title
+                    continue
+
+
+            if presentation_spec.slides[i].bullets:
+                bullet_count = 0
+                bullet = presentation_spec.slides[i].bullets
+                for bullet[bullet_count] in presentation_spec.slides[i].bullets:
+                    tf = body_shape.text_frame
+                    p = tf.add_paragraph()
+                    p.text = presentation_spec.slides[i].bullets[bullet_count]
+                    p.font.size = Pt(22)
+
+
+            if presentation_spec.slides[i].images:
+
+                img_count = 0
+                image = presentation_spec.slides[i].images
+
+                for image[img_count] in presentation_spec.slides[i].images:
+                            
+                    raw_path = presentation_spec.slides[i].images[img_count]
+                    img_path = os.path.abspath(raw_path)         
+                    left = top = Inches(1)
+                    pic = slide.shapes.add_picture(img_path, left, top)
+                    img_count += 1
+
+
+        slide = prs.slides.add_slide(title_slide_layout)    
+        title = slide.shapes.title
+        title.text = presentation_spec.closing_title
+
+        return prs
+
+        
+
 
 
