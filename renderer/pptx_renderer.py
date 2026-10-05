@@ -53,31 +53,41 @@ class PowerPointRenderer:
                     p = tf.add_paragraph()
                     p.text = presentation_spec.slides[i].callouts[callout_count]
                     p.font.size = Pt(28)
-
-
-
-            if presentation_spec.slides[i].bullets:
-                bullet_count = 0
-                bullet = presentation_spec.slides[i].bullets
-                for bullet[bullet_count] in presentation_spec.slides[i].bullets:
-                    tf = body_shape.text_frame
-                    p = tf.add_paragraph()
-                    p.text = presentation_spec.slides[i].bullets[bullet_count]
-                    p.font.size = Pt(22)
-
-
-            if presentation_spec.slides[i].images:
-
-                img_count = 0
-                image = presentation_spec.slides[i].images
-
-                for image[img_count] in presentation_spec.slides[i].images:
+                    if presentation_spec.slides[i].bullets:
+                        bullet_count = -1
+                        bullet = presentation_spec.slides[i].bullets
+                        for bullet in presentation_spec.slides[i].bullets:
+                            bullet_count += 1
+                            print(f"SLIDE {i}:")
+                            print(bullet, "\n\n")
+                            tf = body_shape.text_frame
+                            p = tf.add_paragraph()
+                            p.text = presentation_spec.slides[i].bullets[bullet_count]
+                            p.font.size = Pt(22)
                             
-                    raw_path = presentation_spec.slides[i].images[img_count]
-                    img_path = os.path.abspath(raw_path)         
-                    left = top = Inches(1)
-                    pic = slide.shapes.add_picture(img_path, left, top)
-                    img_count += 1
+
+#            if presentation_spec.slides[i].bullets:
+#                bullet_count = 0
+#                bullet = presentation_spec.slides[i].bullets
+#                for bullet[bullet_count] in presentation_spec.slides[i].bullets:
+#                    tf = body_shape.text_frame
+#                    p = tf.add_paragraph()
+#                    p.text = presentation_spec.slides[i].bullets[bullet_count]
+#                    p.font.size = Pt(22)
+
+
+#            if presentation_spec.slides[i].images:
+
+#                img_count = 0
+#                image = presentation_spec.slides[i].images
+
+#                for image[img_count] in presentation_spec.slides[i].images:
+                            
+#                    raw_path = presentation_spec.slides[i].images[img_count]
+#                    img_path = os.path.abspath(raw_path)         
+#                    left = top = Inches(1)
+#                    pic = slide.shapes.add_picture(img_path, left, top)
+#                    img_count += 1
 
 
         slide = prs.slides.add_slide(title_slide_layout)    
