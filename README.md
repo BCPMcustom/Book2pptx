@@ -2,7 +2,7 @@
 
 Converts a Markdown export of a notebook into a PowerPoint (`.pptx`) deck.
 
-> **Status:** V0.1 (work in progress). The renderer is still being reworked; see [Known limitations](#known-limitations).
+> **Status:** V0.1 (work in progress). The renderer is still being reworked!!!
 
 ## Requirements
 
