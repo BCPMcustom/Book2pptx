@@ -307,6 +307,7 @@ class MarkdownParser:
         if line.startswith("#### "):
             text = line[5:].strip()
             self.sequential_callout += 1
+            print("APPENDING CALLOUTS")
             self.current_slide.callouts.append(text)
 
         
@@ -362,21 +363,34 @@ class MarkdownParser:
                         in_table = False
                         i += 1
                         continue
-                   
+ 
+
+                self.parse_callouts(line)
+
+                if line.startswith("#### "):
+
+                    if seq_call == True and self.sequential_callout == 1:
+                        title = (self.slide_title[0:(len(self.slide_title)-1)]) + " (cont'd)"
+                        self.current_slide = SlideSpec(title)
+                    seq_call = True
+
+                    if seq_call == True and self.sequential_callout > 1:
+                        self.slides.append(self.current_slide)
+                        title = (self.slide_title[0:(len(self.slide_title)-1)]) + " (cont'd)"
+                        self.current_slide = SlideSpec(title)
+                        print(f"NEW SLIDE: {title}")
+                    seq_call = True
+  
+
+                
                                
                 self.parse_heading(line)
                 self.parse_bullet(line)
                 self.parse_image(line)
-                self.parse_callouts(line)
 
 
-                if self.sequential_callout > 0 and line.startswith("#### "):
-                    if seq_call == True and self.sequential_callout > 1:
-                        title = (self.slide_title[0:(len(self.slide_title)-1)]) + " (cont'd)"
-                        self.current_slide = SlideSpec(title)
-                        self.slides.append(self.current_slide)
-                        print(f"NEW SLIDE: {title}")
-                    seq_call = True
+
+
 
 
 
@@ -550,24 +564,47 @@ class PowerPointRenderer:
 
         for slide in presentation_spec.slides:
             i += 1
+            print(f"\n\nDEBUG SECTION\n\nslide #{i+2}")
             slide = prs.slides.add_slide(empty_layout)
             title = presentation_spec.slides[i].title
 
             PowerPointRenderer.render_title(self, slide, title)
             PowerPointRenderer.render_body(self, slide)
 
-#            if presentation_spec.slides[i].images:
+            if presentation_spec.slides[i].callouts:
+               
+                shapes = slide.shapes 
+                callout = slide.shapes.add_textbox(self.left, self.bodyTop, self.block_width, self.bodyHeight) #currently uses textbox to save programming time
+                tf = callout.text_frame
+                tf.word_wrap = True
+                p = tf.paragraphs[0]
+                p.alignment = PP_ALIGN.LEFT
+                run = p.add_run()
 
-#                img_count = 0
-#                image = presentation_spec.slides[i].images
+                font = run.font
+                font.size = Pt(22)
+                font.color.rgb = self.text_fill
 
-#                for image[img_count] in presentation_spec.slides[i].images:
-                            
-#                    raw_path = presentation_spec.slides[i].images[img_count]
-#                    img_path = os.path.abspath(raw_path)         
-#                    left = top = Inches(1)
-#                    pic = slide.shapes.add_picture(img_path, left, top)
-#                    img_count += 1
+                run.text = presentation_spec.slides[i].callouts[0] 
+
+
+                          
+
+
+
+
+
+            if presentation_spec.slides[i].images:
+                img_count = 0
+                image = presentation_spec.slides[i].images
+
+                for image[img_count] in presentation_spec.slides[i].images:
+                          
+                    raw_path = presentation_spec.slides[i].images[img_count]
+                    img_path = os.path.abspath(raw_path)         
+                    left = top = Inches(1)
+                    pic = slide.shapes.add_picture(img_path, left, top)
+                    img_count += 1
 
 
             if presentation_spec.slides[i].bullets: ## This bullet function is good enough for V1.x!  :-D
@@ -595,9 +632,6 @@ class PowerPointRenderer:
         slide = prs.slides.add_slide(empty_layout)
         PowerPointRenderer.render_closing(self, slide, closing_title)
 
-
-
-        print("\n\nDEBUG SECTION\n\n")
 
 
         return prs

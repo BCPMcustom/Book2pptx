@@ -126,7 +126,19 @@ class PowerPointRenderer:
 
             if presentation_spec.slides[i].callouts:
                
-                print(presentation_spec.slides[i].callouts)
+                shapes = slide.shapes 
+                callout = slide.shapes.add_textbox(self.left, self.bodyTop, self.block_width, self.bodyHeight) #currently uses textbox to save programming time
+                tf = callout.text_frame
+                tf.word_wrap = True
+                p = tf.paragraphs[0]
+                p.alignment = PP_ALIGN.LEFT
+                run = p.add_run()
+
+                font = run.font
+                font.size = Pt(22)
+                font.color.rgb = self.text_fill
+
+                run.text = presentation_spec.slides[i].callouts[0] 
 
 
                           
@@ -135,37 +147,37 @@ class PowerPointRenderer:
 
 
 
-#            if presentation_spec.slides[i].images:
-#                img_count = 0
-#                image = presentation_spec.slides[i].images
+            if presentation_spec.slides[i].images:
+                img_count = 0
+                image = presentation_spec.slides[i].images
 
-#                for image[img_count] in presentation_spec.slides[i].images:
+                for image[img_count] in presentation_spec.slides[i].images:
                           
-#                    raw_path = presentation_spec.slides[i].images[img_count]
-#                    img_path = os.path.abspath(raw_path)         
-#                    left = top = Inches(1)
-#                    pic = slide.shapes.add_picture(img_path, left, top)
-#                    img_count += 1
+                    raw_path = presentation_spec.slides[i].images[img_count]
+                    img_path = os.path.abspath(raw_path)         
+                    left = top = Inches(1)
+                    pic = slide.shapes.add_picture(img_path, left, top)
+                    img_count += 1
 
 
-#            if presentation_spec.slides[i].bullets: ## This bullet function is good enough for V1.x!  :-D
-#                shape = slide.shapes
-#                bullet_count = 0
-#                bullet = presentation_spec.slides[i].bullets
-#                bulletBlock = shape.add_textbox(self.left, self.bodyTop, self.block_width, self.bodyHeight)
-#                tf = bulletBlock.text_frame
-#                tf.word_wrap = True
+            if presentation_spec.slides[i].bullets: ## This bullet function is good enough for V1.x!  :-D
+                shape = slide.shapes
+                bullet_count = 0
+                bullet = presentation_spec.slides[i].bullets
+                bulletBlock = shape.add_textbox(self.left, self.bodyTop, self.block_width, self.bodyHeight)
+                tf = bulletBlock.text_frame
+                tf.word_wrap = True
 
-#                for bullet[bullet_count] in presentation_spec.slides[i].bullets:
-#                    p = tf.paragraphs[bullet_count]
-#                    p.alignment = PP_ALIGN.LEFT
-#                    run = p.add_run()
+                for bullet[bullet_count] in presentation_spec.slides[i].bullets:
+                    p = tf.paragraphs[bullet_count]
+                    p.alignment = PP_ALIGN.LEFT
+                    run = p.add_run()
         
-#                    font = run.font
-#                    font.size = Pt(22)
-#                    font.color.rgb = self.text_fill
+                    font = run.font
+                    font.size = Pt(22)
+                    font.color.rgb = self.text_fill
 
-#                    run.text = "\n- " + presentation_spec.slides[i].bullets[bullet_count] + "\n"
+                    run.text = "\n- " + presentation_spec.slides[i].bullets[bullet_count] + "\n"
 
 
 
