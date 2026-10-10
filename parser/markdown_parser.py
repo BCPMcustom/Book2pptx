@@ -191,6 +191,7 @@ class MarkdownParser:
         if line.startswith("#### "):
             text = line[5:].strip()
             self.sequential_callout += 1
+            print("APPENDING CALLOUTS")
             self.current_slide.callouts.append(text)
 
         
@@ -246,21 +247,34 @@ class MarkdownParser:
                         in_table = False
                         i += 1
                         continue
-                   
+ 
+
+                self.parse_callouts(line)
+
+                if line.startswith("#### "):
+
+                    if seq_call == True and self.sequential_callout == 1:
+                        title = (self.slide_title[0:(len(self.slide_title)-1)]) + " (cont'd)"
+                        self.current_slide = SlideSpec(title)
+                    seq_call = True
+
+                    if seq_call == True and self.sequential_callout > 1:
+                        self.slides.append(self.current_slide)
+                        title = (self.slide_title[0:(len(self.slide_title)-1)]) + " (cont'd)"
+                        self.current_slide = SlideSpec(title)
+                        print(f"NEW SLIDE: {title}")
+                    seq_call = True
+  
+
+                
                                
                 self.parse_heading(line)
                 self.parse_bullet(line)
                 self.parse_image(line)
-                self.parse_callouts(line)
 
 
-                if self.sequential_callout > 0 and line.startswith("#### "):
-                    if seq_call == True and self.sequential_callout > 1:
-                        title = (self.slide_title[0:(len(self.slide_title)-1)]) + " (cont'd)"
-                        self.current_slide = SlideSpec(title)
-                        self.slides.append(self.current_slide)
-                        print(f"NEW SLIDE: {title}")
-                    seq_call = True
+
+
 
 
 
