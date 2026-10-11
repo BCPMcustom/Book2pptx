@@ -137,11 +137,14 @@ class MarkdownParser:
         self.base_dir = ""
         self.slide_title = ""
         self.sequential_callout = 0
+        self.seq_call = False
+
 
 
     def parse_heading(self, line):
         if line.startswith("# "):
             self.sequential_callout = 0
+            self.seq_call = False
             text = line[2:].strip()
 
             if self.presentation_title == "":
@@ -156,7 +159,8 @@ class MarkdownParser:
             print(f"NEW SLIDE: {title}")
             self.current_slide = SlideSpec(title)
             self.slides.append(self.current_slide)
-            self.sequential_callout = 0                          
+            self.sequential_callout = 0
+            self.seq_call = False                          
 
 
     def parse_ignore(self, line, in_ignore):
@@ -188,11 +192,15 @@ class MarkdownParser:
 
     def parse_callouts(self, line):
 
-        if line.startswith("#### "):
+        if line.startswith("#### "):   ###NEED TO ADD CODE TO RENDER THE CALLOUTS###
+           
             text = line[5:].strip()
-            self.sequential_callout += 1
-            print("APPENDING CALLOUTS")
             self.current_slide.callouts.append(text)
+            if self.seq_call == True:
+                self.slides.append(self.current_slide)
+            self.seq_call = True
+            self.sequential_callout +=1
+
 
         
     def parse(self, filename):
@@ -206,7 +214,7 @@ class MarkdownParser:
             table_lines = []
             in_ignore = False
             in_table = False
-            seq_call = False            
+                        
 
             i = 0
 
@@ -248,29 +256,16 @@ class MarkdownParser:
                         i += 1
                         continue
  
+                self.parse_heading(line)
+                self.parse_callouts(line)          
+                self.parse_bullet(line)
+                self.parse_image(line)
 
-                self.parse_callouts(line)
-
-                if line.startswith("#### "):
-
-                    if seq_call == True and self.sequential_callout == 1:
-                        title = (self.slide_title[0:(len(self.slide_title)-1)]) + " (cont'd)"
-                        self.current_slide = SlideSpec(title)
-                    seq_call = True
-
-                    if seq_call == True and self.sequential_callout > 1:
-                        self.slides.append(self.current_slide)
-                        title = (self.slide_title[0:(len(self.slide_title)-1)]) + " (cont'd)"
-                        self.current_slide = SlideSpec(title)
-                        print(f"NEW SLIDE: {title}")
-                    seq_call = True
   
 
                 
                                
-                self.parse_heading(line)
-                self.parse_bullet(line)
-                self.parse_image(line)
+
 
 
 

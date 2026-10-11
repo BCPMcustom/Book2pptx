@@ -26,8 +26,11 @@ class PowerPointRenderer:
         self.closingTop = Inches(0.9)
         self.closingHeight = Inches(5.5)
 
+        self.callout_count = 0
+        self.seq_call = False
 
-    def render_title(self, slide, title):
+
+    def render_titleBlock(self, slide):
         shapes = slide.shapes
 
         titleBar = shapes.add_shape(MSO_SHAPE.RECTANGLE, 
@@ -41,6 +44,11 @@ class PowerPointRenderer:
         line.color.brightness = -0.15 # 15% darker
         line.width = Pt(2.5)
 
+ 
+
+    def render_title(self, slide, title):
+        shapes = slide.shapes
+
         txBoxTitle = slide.shapes.add_textbox(self.left, self.ttlTop, self.block_width, self.ttlHeight)
         tf = txBoxTitle.text_frame
         tf.word_wrap = True
@@ -52,7 +60,7 @@ class PowerPointRenderer:
         font.size = self.ttlFontSize
         font.color.rgb = self.text_fill
 
-        run.text = title   
+        run.text = title 
 
 
     def render_body(self, slide):
@@ -111,20 +119,35 @@ class PowerPointRenderer:
 
         shapes = slide.shapes
 
+        PowerPointRenderer.render_titleBlock(self, slide)
         PowerPointRenderer.render_title(self, slide, title)
         
         i = -1
 
         for slide in presentation_spec.slides:
             i += 1
-            print(f"\n\nDEBUG SECTION\n\nslide #{i+2}")
+#            print(f"\n\nDEBUG SECTION\n\nADDING SLIDE #{i+2}")
             slide = prs.slides.add_slide(empty_layout)
             title = presentation_spec.slides[i].title
-
+#            print("RENDERING TITLE BLOCK")
+            PowerPointRenderer.render_titleBlock(self, slide)
+#            print("RENDERING TITLE TEXT")
             PowerPointRenderer.render_title(self, slide, title)
+#            print("RENDERING BODY BLOCK")
             PowerPointRenderer.render_body(self, slide)
 
+
             if presentation_spec.slides[i].callouts:
+
+                text = ""
+
+                if len(presentation_spec.slides[i].callouts) > 1:
+                    self.seq_call = True
+                    text = presentation_spec.slides[i].callouts[self.callout_count - 1]
+                else:
+                    self.seq_call = False
+                    text = presentation_spec.slides[i].callouts[0]
+
                
                 shapes = slide.shapes 
                 callout = slide.shapes.add_textbox(self.left, self.bodyTop, self.block_width, self.bodyHeight) #currently uses textbox to save programming time
@@ -138,26 +161,17 @@ class PowerPointRenderer:
                 font.size = Pt(22)
                 font.color.rgb = self.text_fill
 
-                run.text = presentation_spec.slides[i].callouts[0] 
+                run.text = text 
+
+                if self.seq_call == True:
+                    self.callout_count +=1
+                else:
+                    self.callout_count = 0
 
 
-                          
-
-
-
-
-
-            if presentation_spec.slides[i].images:
-                img_count = 0
-                image = presentation_spec.slides[i].images
-
-                for image[img_count] in presentation_spec.slides[i].images:
-                          
-                    raw_path = presentation_spec.slides[i].images[img_count]
-                    img_path = os.path.abspath(raw_path)         
-                    left = top = Inches(1)
-                    pic = slide.shapes.add_picture(img_path, left, top)
-                    img_count += 1
+            else:
+                self.callout_count = 0
+                self.seq_call = False
 
 
             if presentation_spec.slides[i].bullets: ## This bullet function is good enough for V1.x!  :-D
@@ -180,6 +194,18 @@ class PowerPointRenderer:
                     run.text = "\n- " + presentation_spec.slides[i].bullets[bullet_count] + "\n"
 
 
+
+            if presentation_spec.slides[i].images:
+                img_count = 0
+                image = presentation_spec.slides[i].images
+
+                for image[img_count] in presentation_spec.slides[i].images:
+                          
+                    raw_path = presentation_spec.slides[i].images[img_count]
+                    img_path = os.path.abspath(raw_path)         
+                    left = top = Inches(1)
+                    pic = slide.shapes.add_picture(img_path, left, top)
+                    img_count += 1
 
 
         slide = prs.slides.add_slide(empty_layout)
