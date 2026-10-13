@@ -468,6 +468,7 @@ class PowerPointRenderer:
         self.closingTop = Inches(0.9)
         self.closingHeight = Inches(5.5)
 
+        self.i = -1
         self.callout_count = 0
         self.seq_call = False
 
@@ -549,6 +550,22 @@ class PowerPointRenderer:
         run.text = title 
 
 
+    def render_image(self, slide, slide_spec):  ### Refactor COMPLETE
+
+        img_count = 0
+        shape = slide.shapes
+
+        print()
+      
+        print("RENDERING IMAGE")
+        for image in slide_spec[self.i].images:
+            stagger = 1
+            print(slide_spec[self.i].images[img_count])
+            img_path = os.path.abspath(slide_spec[self.i].images[img_count])
+            pic = slide.shapes.add_picture(img_path, Inches(stagger), Inches(stagger))
+            img_count += 1
+            stagger =+ 0.5
+
 
     def render(self, presentation_spec):
         prs = Presentation(self.template)
@@ -568,14 +585,13 @@ class PowerPointRenderer:
 
         for slide in presentation_spec.slides:
             i += 1
-#            print(f"\n\nDEBUG SECTION\n\nADDING SLIDE #{i+2}")
+            self.i += 1
+
             slide = prs.slides.add_slide(empty_layout)
             title = presentation_spec.slides[i].title
-#            print("RENDERING TITLE BLOCK")
+
             PowerPointRenderer.render_titleBlock(self, slide)
-#            print("RENDERING TITLE TEXT")
             PowerPointRenderer.render_title(self, slide, title)
-#            print("RENDERING BODY BLOCK")
             PowerPointRenderer.render_body(self, slide)
 
 
@@ -635,20 +651,7 @@ class PowerPointRenderer:
 
                     run.text = "\n- " + presentation_spec.slides[i].bullets[bullet_count] + "\n"
 
-
-
-            if presentation_spec.slides[i].images:
-                img_count = 0
-                image = presentation_spec.slides[i].images
-
-                for image[img_count] in presentation_spec.slides[i].images:
-                          
-                    raw_path = presentation_spec.slides[i].images[img_count]
-                    img_path = os.path.abspath(raw_path)         
-                    left = top = Inches(1)
-                    pic = slide.shapes.add_picture(img_path, left, top)
-                    img_count += 1
-
+            PowerPointRenderer.render_image(self, slide, presentation_spec.slides)
 
         slide = prs.slides.add_slide(empty_layout)
         PowerPointRenderer.render_closing(self, slide, closing_title)
