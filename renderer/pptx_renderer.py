@@ -108,17 +108,53 @@ class PowerPointRenderer:
         run.text = title 
 
 
+    def render_callouts(self, slide, slide_spec):    ## Refactor in PROGRESS
+
+        print(f"SLIDE {self.i}")    
+        print("RENDERING CALLOUTS")
+        text = ""
+ 
+        if slide_spec[self.i].callouts:     
+            if len(slide_spec[self.i].callouts) > 1:
+                self.seq_call = True
+                text = slide_spec[self.i].callouts[self.callout_count]
+                print(text)
+                self.callout_count += 1
+            else:                    
+                self.seq_call = False
+                self.callout_count = 0
+                text = slide_spec[self.i].callouts[0]
+                print(text)
+
+            shapes = slide.shapes 
+            callout = slide.shapes.add_textbox(self.left, self.bodyTop, self.block_width, self.bodyHeight) #currently uses textbox to save programming time
+            tf = callout.text_frame
+            tf.word_wrap = True
+            p = tf.paragraphs[0]
+            p.alignment = PP_ALIGN.LEFT
+            run = p.add_run()
+
+            font = run.font
+            font.size = Pt(22)
+            font.color.rgb = self.text_fill
+
+            run.text = text 
+
+            
+
+
+
+
+
+
+
     def render_image(self, slide, slide_spec):  ### Refactor COMPLETE
 
         img_count = 0
         shape = slide.shapes
 
-        print()
-      
-        print("RENDERING IMAGE")
         for image in slide_spec[self.i].images:
             stagger = 1
-            print(slide_spec[self.i].images[img_count])
             img_path = os.path.abspath(slide_spec[self.i].images[img_count])
             pic = slide.shapes.add_picture(img_path, Inches(stagger), Inches(stagger))
             img_count += 1
@@ -153,62 +189,62 @@ class PowerPointRenderer:
             PowerPointRenderer.render_body(self, slide)
 
 
-            if presentation_spec.slides[i].callouts:
+#            if presentation_spec.slides[i].callouts:
 
-                text = ""
 
-                if len(presentation_spec.slides[i].callouts) > 1:
-                    self.seq_call = True
-                    text = presentation_spec.slides[i].callouts[self.callout_count - 1]
-                else:
-                    self.seq_call = False
-                    text = presentation_spec.slides[i].callouts[0]
+#                if len(presentation_spec.slides[i].callouts) > 1:
+#                    self.seq_call = True
+#                    text = presentation_spec.slides[i].callouts[self.callout_count - 1]
+#                else:
+#                    self.seq_call = False
+#                    text = presentation_spec.slides[i].callouts[0]
 
                
-                shapes = slide.shapes 
-                callout = slide.shapes.add_textbox(self.left, self.bodyTop, self.block_width, self.bodyHeight) #currently uses textbox to save programming time
-                tf = callout.text_frame
-                tf.word_wrap = True
-                p = tf.paragraphs[0]
-                p.alignment = PP_ALIGN.LEFT
-                run = p.add_run()
+#                shapes = slide.shapes 
+#                callout = slide.shapes.add_textbox(self.left, self.bodyTop, self.block_width, self.bodyHeight) #currently uses textbox to save programming time
+#                tf = callout.text_frame
+#                tf.word_wrap = True
+#                p = tf.paragraphs[0]
+#                p.alignment = PP_ALIGN.LEFT
+#                run = p.add_run()
 
-                font = run.font
-                font.size = Pt(22)
-                font.color.rgb = self.text_fill
+#                font = run.font
+#                font.size = Pt(22)
+#                font.color.rgb = self.text_fill
 
-                run.text = text 
+#                run.text = text 
 
-                if self.seq_call == True:
-                    self.callout_count +=1
-                else:
-                    self.callout_count = 0
-
-
-            else:
-                self.callout_count = 0
-                self.seq_call = False
+#                if self.seq_call == True:
+#                    self.callout_count +=1
+#                else:
+#                    self.callout_count = 0
 
 
-            if presentation_spec.slides[i].bullets: ## This bullet function is good enough for V1.x!  :-D
-                shape = slide.shapes
-                bullet_count = 0
-                bullet = presentation_spec.slides[i].bullets
-                bulletBlock = shape.add_textbox(self.left, self.bodyTop, self.block_width, self.bodyHeight)
-                tf = bulletBlock.text_frame
-                tf.word_wrap = True
+#            else:
+#                self.callout_count = 0
+#                self.seq_call = False
 
-                for bullet[bullet_count] in presentation_spec.slides[i].bullets:
-                    p = tf.paragraphs[bullet_count]
-                    p.alignment = PP_ALIGN.LEFT
-                    run = p.add_run()
-        
-                    font = run.font
-                    font.size = Pt(22)
-                    font.color.rgb = self.text_fill
 
-                    run.text = "\n- " + presentation_spec.slides[i].bullets[bullet_count] + "\n"
+#            if presentation_spec.slides[i].bullets: ## This bullet function is good enough for V1.x!  :-D
+#                shape = slide.shapes
+#                bullet_count = 0
+#                bullet = presentation_spec.slides[i].bullets
+#                bulletBlock = shape.add_textbox(self.left, self.bodyTop, self.block_width, self.bodyHeight)
+#                tf = bulletBlock.text_frame
+#                tf.word_wrap = True
 
+#                for bullet[bullet_count] in presentation_spec.slides[i].bullets:
+#                    p = tf.paragraphs[bullet_count]
+#                    p.alignment = PP_ALIGN.LEFT
+#                    run = p.add_run()
+#        
+#                    font = run.font
+#                    font.size = Pt(22)
+#                    font.color.rgb = self.text_fill
+
+#                    run.text = "\n- " + presentation_spec.slides[i].bullets[bullet_count] + "\n"
+
+            PowerPointRenderer.render_callouts(self, slide, presentation_spec.slides)
             PowerPointRenderer.render_image(self, slide, presentation_spec.slides)
 
         slide = prs.slides.add_slide(empty_layout)
