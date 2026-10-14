@@ -19,6 +19,17 @@ def main():
     # sys.argv[1] will be the first argument passed ('path_to_markdown.md')
     # sys.argv[2] will be the TEMPLATE/noTEMPLATE flag IStemplate
 
+    # -------------------------------------------------------------------------
+    # STEP 0: Set IStemplate flag
+    # -------------------------------------------------------------------------
+
+    IStemplate = 0
+
+    if len(sys.argv) >2 and sys.argv[2] == "-t":
+        print("\n|:Using Template Mode:|\n")
+        IStemplate = 1
+        
+
     if len(sys.argv) < 2:
         print("Error: Please provide a file path.")
         print("Usage: python3 book2pptx.py <path_to_markdown.md>")
@@ -70,11 +81,6 @@ def main():
     input_path = searchResult
     print(f"Zip extraction complete. Found target markdown: {input_path}")
 
-    # -------------------------------------------------------------------------
-    # STEP 4: Set IStemplate flag
-    # -------------------------------------------------------------------------
-
-    IStemplate = 0    #HARD-CODED OFF FOR NOW
 
 
     print(f"Processing {input_path} through markdown_parser...")
