@@ -141,6 +141,7 @@ class MarkdownParser:
 
 
 
+
     def parse_heading(self, line):
         if line.startswith("# "):
             self.sequential_callout = 0
@@ -174,8 +175,7 @@ class MarkdownParser:
 
         if line.startswith("- "):
             bullet = line[2:].strip()
-            if self.current_slide:
-                self.current_slide.bullets.append(bullet)
+            self.current_slide.bullets.append(bullet)
 
 
     def parse_image(self, line):
@@ -190,14 +190,16 @@ class MarkdownParser:
             self.current_slide.images.append(full_path)
 
 
-    def parse_callouts(self, line):
+    def parse_callouts(self, line):         ### FIX THIS!!!
 
-        if line.startswith("#### "):   ###NEED TO ADD CODE TO RENDER THE CALLOUTS###
+        if line.startswith("#### "):
            
+            self.current_slide = SlideSpec(self.slide_title)
             text = line[5:].strip()
             self.current_slide.callouts.append(text)
             if self.seq_call == True:
                 self.slides.append(self.current_slide)
+                
             self.seq_call = True
             self.sequential_callout +=1
 
@@ -260,18 +262,6 @@ class MarkdownParser:
                 self.parse_callouts(line)          
                 self.parse_bullet(line)
                 self.parse_image(line)
-
-  
-
-                
-                               
-
-
-
-
-
-
-
 
                 i += 1
                 in_ignore = self.parse_ignore(line, in_ignore)
