@@ -190,15 +190,19 @@ class MarkdownParser:
             self.current_slide.images.append(full_path)
 
 
-    def parse_callouts(self, line):         ### FIX THIS!!!
+    def parse_callouts(self, line):         
 
         if line.startswith("#### "):
-           
-            self.current_slide = SlideSpec(self.slide_title)
+         
             text = line[5:].strip()
-            self.current_slide.callouts.append(text)
-            if self.seq_call == True:
+
+            if self.seq_call == False:
+                self.current_slide.callouts.append(text)
+
+            else:
+                self.current_slide = SlideSpec(self.slide_title)
                 self.slides.append(self.current_slide)
+                self.current_slide.callouts.append(text)          
                 
             self.seq_call = True
             self.sequential_callout +=1
