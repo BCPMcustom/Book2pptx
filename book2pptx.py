@@ -9,6 +9,8 @@ from pathlib import Path
 def main():
     # sys.argv[0] is always the script name ('book2pptx.py')
     # sys.argv[1] will be the first argument passed ('path_to_markdown.md')
+    # sys.argv[2] will be the TEMPLATE/noTEMPLATE flag IStemplate
+
     if len(sys.argv) < 2:
         print("Error: Please provide a file path.")
         print("Usage: python3 book2pptx.py <path_to_markdown.md>")
@@ -59,6 +61,14 @@ def main():
     
     input_path = searchResult
     print(f"Zip extraction complete. Found target markdown: {input_path}")
+
+    # -------------------------------------------------------------------------
+    # STEP 4: Set IStemplate flag
+    # -------------------------------------------------------------------------
+
+    IStemplate = 0    #HARD-CODED OFF FOR NOW
+
+
     print(f"Processing {input_path} through markdown_parser...")
     
     try:
@@ -66,7 +76,7 @@ def main():
         parser = MarkdownParser()
         presentation = parser.parse(input_path)
         renderer = PowerPointRenderer()
-        finalPPTX = renderer.render(presentation)
+        finalPPTX = renderer.render(presentation, IStemplate)
         new_filename = str(Path(zip_file_input).with_suffix('.pptx'))
         finalPPTX.save(new_filename)
         

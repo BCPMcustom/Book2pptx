@@ -16,7 +16,7 @@ class PowerPointRenderer:
         self.block_fill = RGBColor(155, 155, 155)
         self.text_fill = RGBColor(255, 255, 255)
         self.left = Inches(0.7)
-        self.block_width = Inches(9.6)
+        self.block_width = Inches(8.6)     ###USES (9.6) with template, (8.6) without template
         self.ttlFontSize = Pt(42)
         self.ttlTop = Inches(0.75)
         self.ttlHeight = Inches(1.5)
@@ -26,6 +26,7 @@ class PowerPointRenderer:
         self.closingHeight = Inches(5.5)
 
         self.i = -1
+        self.IStemplate = 0
 
 
     def render_titleBlock(self, slide):
@@ -61,7 +62,7 @@ class PowerPointRenderer:
         run.text = title 
 
 
-    def render_body(self, slide):
+    def render_bodyBlock(self, slide):
         shapes = slide.shapes
 
         bodyBlock = shapes.add_shape(MSO_SHAPE.RECTANGLE,   
@@ -76,8 +77,7 @@ class PowerPointRenderer:
         line.width = Pt(2.5)
 
 
-
-    def render_closing(self, slide, title):
+    def render_closingBlock(self, slide):
         shapes = slide.shapes
 
         bodyBlock = shapes.add_shape(MSO_SHAPE.RECTANGLE,  
@@ -90,6 +90,11 @@ class PowerPointRenderer:
         line.color.rgb = self.block_fill
         line.color.brightness = -0.15 # 15% darker
         line.width = Pt(2.5)
+
+
+
+    def render_closing(self, slide, title):
+        shapes = slide.shapes
 
         txBoxTitle = slide.shapes.add_textbox(self.left, self.closingTop, self.block_width, self.closingHeight)
         tf = txBoxTitle.text_frame
@@ -177,22 +182,32 @@ class PowerPointRenderer:
             img_path = os.path.abspath(slide_spec[self.i].images[img_count])
             pic = slide.shapes.add_picture(img_path, Inches(stagger), Inches(stagger))
             img_count += 1
-            stagger =+ 0.5
+            stagger += 0.5
 
 
 
 
-    def render(self, presentation_spec):
-        prs = Presentation(self.template)
-        slide_layout = prs.slide_layouts[0]
-        empty_layout = prs.slide_layouts[1]
+    def render(self, presentation_spec, IStemplate):   ###REFACTOR TO notUSE TEMPATE IN PROGRESS
+
+        self.IStemplate = IStemplate
+
+        if self.IStemplate == 0:
+            prs = Presentation() 
+        else:
+            prs = Presentation(self.template)
+            self.block_width = Inches(9.6)                    
+
+        slide_layout = prs.slide_layouts[self.IStemplate]
         title = presentation_spec.title
         closing_title = presentation_spec.closing_title
             
-        slide = prs.slides[0]
-        shapes = slide.shapes
-
-        PowerPointRenderer.render_titleBlock(self, slide)
+        if self.IStemplate == 1:
+            slide = prs.slides[0]
+            PowerPointRenderer.render_titleBlock(self, slide)
+        else:
+            self.text_fill = RGBColor(0, 0, 0)
+            slide = prs.slides.add_slide(slide_layout)
+       
         PowerPointRenderer.render_title(self, slide, title)
         
 
@@ -200,17 +215,21 @@ class PowerPointRenderer:
 
             self.i += 1
 
-            slide = prs.slides.add_slide(empty_layout)
+            slide = prs.slides.add_slide(slide_layout)
             title = presentation_spec.slides[self.i].title
 
-            PowerPointRenderer.render_titleBlock(self, slide)
+            if self.IStemplate == 1:
+                PowerPointRenderer.render_titleBlock(self, slide)
+                PowerPointRenderer.render_bodyBlock(self, slide)
+
             PowerPointRenderer.render_title(self, slide, title)
-            PowerPointRenderer.render_body(self, slide)
             PowerPointRenderer.render_callouts(self, slide, presentation_spec.slides)
             PowerPointRenderer.render_bullets(self, slide, presentation_spec.slides)
             PowerPointRenderer.render_images(self, slide, presentation_spec.slides)
 
-        slide = prs.slides.add_slide(empty_layout)
+        slide = prs.slides.add_slide(slide_layout)
+        if self.IStemplate == 1:
+            PowerPointRenderer.render_closingBlock(self, slide)
         PowerPointRenderer.render_closing(self, slide, closing_title)
         return prs
 
