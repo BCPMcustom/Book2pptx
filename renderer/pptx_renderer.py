@@ -1,236 +1,165 @@
-import os
-from pptx import Presentation
-from pptx.util import Inches, Pt
-from pptx.enum.shapes import MSO_SHAPE
-from pptx.enum.dml import MSO_FILL
-from pptx.dml.color import RGBColor
-from pptx.enum.text import PP_ALIGN
+"""PowerPoint rendering for book2pptx.
 
+!!! VERSION 1.0 code -> refactored by Claude from Ben's code !!!
+
+Turns a ``PresentationSpec`` into a python-pptx ``Presentation``. Two modes:
+
+* Plain (default): the default python-pptx presentation with black text.
+* Template: ``renderer/templates/Template.pptx`` with grey title/body blocks
+  drawn behind white text.
+"""
+
+from pathlib import Path
+
+from pptx import Presentation
+from pptx.dml.color import RGBColor
+from pptx.enum.shapes import MSO_SHAPE
+from pptx.enum.text import PP_ALIGN
+from pptx.util import Inches, Pt
+
+from parser.models.presentation_spec import PresentationSpec, SlideSpec
+
+TEMPLATE_PATH = Path(__file__).resolve().parent / "templates" / "Template.pptx"
+
+# Geometry. The template slides are wider than the default 4:3 slide.
+LEFT = Inches(0.7)
+BLOCK_WIDTH = Inches(8.6)
+BLOCK_WIDTH_TEMPLATE = Inches(9.6)
+TITLE_TOP = Inches(0.75)
+TITLE_HEIGHT = Inches(1.5)
+BODY_TOP = Inches(2.5)
+BODY_HEIGHT = Inches(4.5)
+CLOSING_TOP = Inches(0.9)
+CLOSING_HEIGHT = Inches(5.5)
+
+# Images start at IMAGE_ORIGIN and each further image shifts by IMAGE_STAGGER.
+IMAGE_ORIGIN = Inches(1)
+IMAGE_STAGGER = Inches(0.5)
+
+# Typography.
+TITLE_FONT_SIZE = Pt(42)
+BODY_FONT_SIZE = Pt(22)
+LIGHT_TEXT = RGBColor(255, 255, 255)
+DARK_TEXT = RGBColor(0, 0, 0)
+
+# Block styling (template mode).
+BLOCK_FILL = RGBColor(155, 155, 155)
+BLOCK_OUTLINE_WIDTH = Pt(2.5)
+BLOCK_OUTLINE_BRIGHTNESS = -0.15  # Outline is 15% darker than the fill.
 
 
 class PowerPointRenderer:
+    """Render a ``PresentationSpec`` to a PowerPoint deck."""
 
-    def __init__(self):
-        super().__init__()
-        self.template = "renderer/templates/Template.pptx"
-        self.block_fill = RGBColor(155, 155, 155)
-        self.text_fill = RGBColor(255, 255, 255)
-        self.left = Inches(0.7)
-        self.block_width = Inches(8.6)     ###USES (9.6) with template, (8.6) without template
-        self.ttlFontSize = Pt(42)
-        self.ttlTop = Inches(0.75)
-        self.ttlHeight = Inches(1.5)
-        self.bodyTop = Inches(2.5)
-        self.bodyHeight = Inches(4.5)
-        self.closingTop = Inches(0.9)
-        self.closingHeight = Inches(5.5)
+    def __init__(self, use_template: bool = False) -> None:
+        self.use_template = use_template
+        self.block_width = BLOCK_WIDTH_TEMPLATE if use_template else BLOCK_WIDTH
+        self.text_color = LIGHT_TEXT if use_template else DARK_TEXT
+        # Slide layout used for every slide: index 1 in the template, index 0
+        # in the default presentation.
+        self.layout_index = 1 if use_template else 0
 
-        self.i = -1
-        self.IStemplate = 0
+    # -- Shared helpers ------------------------------------------------------
 
+    def _add_block(self, slide, top: int, height: int) -> None:
+        """Draw a filled, outlined rectangle behind the text."""
+        block = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, LEFT, top, self.block_width, height)
+        block.fill.solid()
+        block.fill.fore_color.rgb = BLOCK_FILL
+        block.line.color.rgb = BLOCK_FILL
+        block.line.color.brightness = BLOCK_OUTLINE_BRIGHTNESS
+        block.line.width = BLOCK_OUTLINE_WIDTH
 
-    def render_titleBlock(self, slide):
-        shapes = slide.shapes
+    def _add_text_frame(self, slide, top: int, height: int):
+        """Add a word-wrapped text box spanning the block width."""
+        text_box = slide.shapes.add_textbox(LEFT, top, self.block_width, height)
+        frame = text_box.text_frame
+        frame.word_wrap = True
+        return frame
 
-        titleBar = shapes.add_shape(MSO_SHAPE.RECTANGLE, 
-                                self.left, self.ttlTop, self.block_width, self.ttlHeight)        
-        fill = titleBar.fill
-        fill.solid()
-        fill.fore_color.rgb = self.block_fill
+    def _write(self, paragraph, text: str, size, align) -> None:
+        """Write ``text`` into ``paragraph`` as a single styled run."""
+        paragraph.alignment = align
+        run = paragraph.add_run()
+        run.font.size = size
+        run.font.color.rgb = self.text_color
+        run.text = text
 
-        line = titleBar.line
-        line.color.rgb = self.block_fill
-        line.color.brightness = -0.15 # 15% darker
-        line.width = Pt(2.5)
+    def _write_lines(self, frame, lines: list[str], size, align) -> None:
+        """Write each line as its own paragraph, reusing the frame's first one."""
+        for index, line in enumerate(lines):
+            paragraph = frame.paragraphs[0] if index == 0 else frame.add_paragraph()
+            self._write(paragraph, line, size, align)
 
- 
+    # -- Blocks and text -----------------------------------------------------
 
-    def render_title(self, slide, title):
-        shapes = slide.shapes
+    def render_title_block(self, slide) -> None:
+        self._add_block(slide, TITLE_TOP, TITLE_HEIGHT)
 
-        txBoxTitle = slide.shapes.add_textbox(self.left, self.ttlTop, self.block_width, self.ttlHeight)
-        tf = txBoxTitle.text_frame
-        tf.word_wrap = True
-        p = tf.paragraphs[0]
-        p.alignment = PP_ALIGN.CENTER
-        run = p.add_run()
+    def render_body_block(self, slide) -> None:
+        self._add_block(slide, BODY_TOP, BODY_HEIGHT)
 
-        font = run.font
-        font.size = self.ttlFontSize
-        font.color.rgb = self.text_fill
+    def render_closing_block(self, slide) -> None:
+        self._add_block(slide, CLOSING_TOP, CLOSING_HEIGHT)
 
-        run.text = title 
+    def render_title(self, slide, title: str) -> None:
+        frame = self._add_text_frame(slide, TITLE_TOP, TITLE_HEIGHT)
+        self._write(frame.paragraphs[0], title, TITLE_FONT_SIZE, PP_ALIGN.CENTER)
 
+    def render_closing(self, slide, title: str) -> None:
+        frame = self._add_text_frame(slide, CLOSING_TOP, CLOSING_HEIGHT)
+        self._write(frame.paragraphs[0], title, TITLE_FONT_SIZE, PP_ALIGN.CENTER)
 
-    def render_bodyBlock(self, slide):
-        shapes = slide.shapes
+    def render_bullets(self, slide, slide_spec: SlideSpec) -> None:
+        if not slide_spec.bullets:
+            return
+        frame = self._add_text_frame(slide, BODY_TOP, BODY_HEIGHT)
+        lines = [f"- {bullet}" for bullet in slide_spec.bullets]
+        self._write_lines(frame, lines, BODY_FONT_SIZE, PP_ALIGN.LEFT)
 
-        bodyBlock = shapes.add_shape(MSO_SHAPE.RECTANGLE,   
-                                self.left, self.bodyTop, self.block_width, self.bodyHeight)        
-        fill = bodyBlock.fill
-        fill.solid()
-        fill.fore_color.rgb = self.block_fill
+    def render_callouts(self, slide, slide_spec: SlideSpec) -> None:
+        if not slide_spec.callouts:
+            return
+        frame = self._add_text_frame(slide, BODY_TOP, BODY_HEIGHT)
+        self._write_lines(frame, slide_spec.callouts, BODY_FONT_SIZE, PP_ALIGN.LEFT)
 
-        line = bodyBlock.line
-        line.color.rgb = self.block_fill
-        line.color.brightness = -0.15 # 15% darker
-        line.width = Pt(2.5)
+    def render_images(self, slide, slide_spec: SlideSpec) -> None:
+        for index, image_path in enumerate(slide_spec.images):
+            offset = IMAGE_ORIGIN + index * IMAGE_STAGGER
+            slide.shapes.add_picture(str(Path(image_path).resolve()), offset, offset)
 
+    # -- Deck assembly -------------------------------------------------------
 
-    def render_closingBlock(self, slide):
-        shapes = slide.shapes
-
-        bodyBlock = shapes.add_shape(MSO_SHAPE.RECTANGLE,  
-                                self.left, self.closingTop, self.block_width, self.closingHeight)        
-        fill = bodyBlock.fill
-        fill.solid()
-        fill.fore_color.rgb = self.block_fill
-
-        line = bodyBlock.line
-        line.color.rgb = self.block_fill
-        line.color.brightness = -0.15 # 15% darker
-        line.width = Pt(2.5)
-
-
-
-    def render_closing(self, slide, title):
-        shapes = slide.shapes
-
-        txBoxTitle = slide.shapes.add_textbox(self.left, self.closingTop, self.block_width, self.closingHeight)
-        tf = txBoxTitle.text_frame
-        tf.word_wrap = True
-        p = tf.paragraphs[0]
-        p.alignment = PP_ALIGN.CENTER
-        run = p.add_run()
-
-        font = run.font
-        font.size = self.ttlFontSize
-        font.color.rgb = self.text_fill
-
-        run.text = title
-
-
-
-
-    def render_bullets(self, slide, slide_spec):
-
-        if slide_spec[self.i].bullets:
-
-            shape = slide.shapes
-
-            bullet_count = 0    
-            bulletBlock = shape.add_textbox(self.left, self.bodyTop, self.block_width, self.bodyHeight)
-            tf = bulletBlock.text_frame
-            tf.word_wrap = True
-
-            for bullet in slide_spec[self.i].bullets:
-
-                if bullet_count == 0:
-                    p = tf.paragraphs[0]
-                else:
-                    p = tf.add_paragraph()
-                   
-                p.alignment = PP_ALIGN.LEFT
-                run = p.add_run()
-        
-                font = run.font
-                font.size = Pt(22)
-                font.color.rgb = self.text_fill
-
-                run.text = "- " + bullet + "\n"
-           
-                if len(slide_spec[self.i].bullets) > 1:
-                    bullet_count += 1
-
-            bullet_count = 0
-
-
-
-
-    def render_callouts(self, slide, slide_spec):
-
-        if slide_spec[self.i].callouts:  
-
-            text = slide_spec[self.i].callouts[0]
-
-            shapes = slide.shapes 
-            callout = slide.shapes.add_textbox(self.left, self.bodyTop, self.block_width, self.bodyHeight)
-            tf = callout.text_frame
-            tf.word_wrap = True
-            p = tf.paragraphs[0]
-            p.alignment = PP_ALIGN.LEFT
-            run = p.add_run()
-
-            font = run.font
-            font.size = Pt(22)
-            font.color.rgb = self.text_fill
-
-            run.text = text 
-
-          
-
-
-
-
-    def render_images(self, slide, slide_spec):
-
-        img_count = 0
-        shape = slide.shapes
-
-        for image in slide_spec[self.i].images:
-            stagger = 1
-            img_path = os.path.abspath(slide_spec[self.i].images[img_count])
-            pic = slide.shapes.add_picture(img_path, Inches(stagger), Inches(stagger))
-            img_count += 1
-            stagger += 0.5
-
-
-
-
-    def render(self, presentation_spec, IStemplate):   ###REFACTOR TO notUSE TEMPATE IN PROGRESS
-
-        self.IStemplate = IStemplate
-
-        if self.IStemplate == 0:
-            prs = Presentation() 
+    def render(self, presentation_spec: PresentationSpec) -> Presentation:
+        if self.use_template:
+            if not TEMPLATE_PATH.is_file():
+                raise FileNotFoundError(f"Template not found at '{TEMPLATE_PATH}'.")
+            prs = Presentation(str(TEMPLATE_PATH))
         else:
-            prs = Presentation(self.template)
-            self.block_width = Inches(9.6)                    
+            prs = Presentation()
+        layout = prs.slide_layouts[self.layout_index]
 
-        slide_layout = prs.slide_layouts[self.IStemplate]
-        title = presentation_spec.title
-        closing_title = presentation_spec.closing_title
-            
-        if self.IStemplate == 1:
+        # Opening slide. The template ships with its title slide already in place.
+        if self.use_template:
             slide = prs.slides[0]
-            PowerPointRenderer.render_titleBlock(self, slide)
+            self.render_title_block(slide)
         else:
-            self.text_fill = RGBColor(0, 0, 0)
-            slide = prs.slides.add_slide(slide_layout)
-       
-        PowerPointRenderer.render_title(self, slide, title)
-        
+            slide = prs.slides.add_slide(layout)
+        self.render_title(slide, presentation_spec.title)
 
-        for slide in presentation_spec.slides:
+        for slide_spec in presentation_spec.slides:
+            slide = prs.slides.add_slide(layout)
+            if self.use_template:
+                self.render_title_block(slide)
+                self.render_body_block(slide)
+            self.render_title(slide, slide_spec.title)
+            self.render_callouts(slide, slide_spec)
+            self.render_bullets(slide, slide_spec)
+            self.render_images(slide, slide_spec)
 
-            self.i += 1
-
-            slide = prs.slides.add_slide(slide_layout)
-            title = presentation_spec.slides[self.i].title
-
-            if self.IStemplate == 1:
-                PowerPointRenderer.render_titleBlock(self, slide)
-                PowerPointRenderer.render_bodyBlock(self, slide)
-
-            PowerPointRenderer.render_title(self, slide, title)
-            PowerPointRenderer.render_callouts(self, slide, presentation_spec.slides)
-            PowerPointRenderer.render_bullets(self, slide, presentation_spec.slides)
-            PowerPointRenderer.render_images(self, slide, presentation_spec.slides)
-
-        slide = prs.slides.add_slide(slide_layout)
-        if self.IStemplate == 1:
-            PowerPointRenderer.render_closingBlock(self, slide)
-        PowerPointRenderer.render_closing(self, slide, closing_title)
+        # Closing slide.
+        slide = prs.slides.add_slide(layout)
+        if self.use_template:
+            self.render_closing_block(slide)
+        self.render_closing(slide, presentation_spec.closing_title)
         return prs
-
-        

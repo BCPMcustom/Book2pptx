@@ -2,32 +2,37 @@
 
 Converts a Markdown export of a notebook into a PowerPoint (`.pptx`) deck.
 
-> **Status:** V0.1 (work in progress). The renderer is still being reworked!!!
+> **Status:** V1.0 (work in progress).
 
 ## Requirements
 
-- Python 3.9 or newer
+- Python 3.10 or newer
 - [python-pptx](https://python-pptx.readthedocs.io/)
-- [matplotlib](https://matplotlib.org/) (used to render HTML tables as images)
+- [matplotlib](https://matplotlib.org/) (renders HTML tables as images)
 
 ```bash
-pip install python-pptx matplotlib
+pip install -r requirements.txt
 ```
 
 ## Usage
 
 ```bash
-python book2pptx.py MintClassics.zip
+python3 book2pptx.py MintClassics.zip
 ```
 
 The input is a `.zip` archive containing one Markdown file plus any images it references. The deck is saved next to the archive with a `.pptx` extension.
 
 | Option | Description |
 | --- | --- |
+| `-t`, `--template` | Render with `renderer/templates/Template.pptx` |
 | `-o`, `--output` | Output `.pptx` path (default: archive name with a `.pptx` suffix) |
 | `-v`, `--verbose` | Enable debug logging |
 
-A relative archive name is looked for in the current folder first, then in the project folder, so the program can be launched from any directory.
+A relative archive name is looked for in the current folder first, then in the project folder, so the program can be launched from any directory:
+
+```bash
+python3 ~/Book2pptx/book2pptx.py MintClassics.zip
+```
 
 ## Markdown syntax
 
@@ -37,7 +42,7 @@ A relative archive name is looked for in the current folder first, then in the p
 | `## Text` | Starts a new slide |
 | `- Text` | Adds a bullet to the current slide |
 | `![alt](path)` | Adds an image to the current slide (path relative to the Markdown file) |
-| `#### Text` | Adds a callout to the current slide |
+| `#### Text` | Adds a callout to the current slide; each further callout in the same section gets its own slide with the same title |
 | `<table>...</table>` | Rendered to a PNG and added to the current slide |
 | `### Text` | Opens an ignored region (see below) |
 
@@ -58,14 +63,17 @@ Skipped tables are not rendered, which also shortens run time.
 ## Project layout
 
 ```
-book2pptx.py        Command-line entry point
-parser/             Markdown parsing and table rendering
-renderer/           PowerPoint rendering
+book2pptx.py                      Command-line entry point
+parser/markdown_parser.py         Markdown parsing and table rendering
+parser/models/presentation_spec.py  Slide and presentation data classes
+renderer/pptx_renderer.py         PowerPoint rendering
+renderer/templates/Template.pptx  Template used with --template
 ```
 
 ## Known limitations
 
-- Sequential `####` callouts that carry bullets do not yet start a new slide. This needs a structural change in the renderer.
+- A callout and bullets in the same section are placed in the same area of the slide and can overlap.
+- Font sizes are fixed (title 42 pt, body 22 pt); long text is not yet shrunk to fit.
 
 ## License
 

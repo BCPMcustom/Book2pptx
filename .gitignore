@@ -1,2 +1,12 @@
-# ignore the __pycache__ folers
-__pycache__
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Generated decks (the template is kept)
+*.pptx
+!renderer/templates/Template.pptx
+
+# Legacy scratch folder from earlier versions
+assets/

@@ -1,0 +1,672 @@
+
+
+~~~~~~~~~~~~~~~~~~~~~~
+||   book2pptx.py   ||
+~~~~~~~~~~~~~~~~~~~~~~
+
+
+
+#!/usr/bin/env python3
+"""book2pptx: convert a zipped Markdown export into a PowerPoint deck.
+
+!!! VERSION 1.0 code -> refactored by Claude from Ben's code !!!
+
+The input archive must contain a Markdown file and any images it references.
+The archive is extracted into a temporary directory, parsed into a presentation
+spec, rendered to a deck, and saved next to the archive with a .pptx extension
+(or at the path given with --output). The temporary directory is removed on exit,
+including when an error occurs.
+"""
+
+import argparse
+import logging
+import sys
+import tempfile
+import zipfile
+from pathlib import Path
+
+from parser.markdown_parser import MarkdownParser
+from renderer.pptx_renderer import PowerPointRenderer
+
+logger = logging.getLogger("book2pptx")
+
+# Project directory (the folder containing this script), independent of the
+# directory the program is launched from.
+BASE_DIR = Path(__file__).resolve().parent
+
+
+class BookToPptxError(Exception):
+    """A user-correctable failure, such as a missing or invalid input archive."""
+
+
+def resolve_archive(archive: Path) -> Path:
+    """Locate the input archive.
+
+    Absolute paths are used as given. Relative paths are tried against the
+    current directory first, then against the project directory, so the program
+    can be launched from any folder.
+    """
+    archive = archive.expanduser()
+    candidates = [archive] if archive.is_absolute() else [Path.cwd() / archive, BASE_DIR / archive]
+    for candidate in candidates:
+        if candidate.is_file():
+            return candidate.resolve()
+    raise BookToPptxError(
+        f"Could not find '{archive}' in the current directory or in '{BASE_DIR}'."
+    )
+
+
+def extract_archive(archive: Path, destination: Path) -> None:
+    """Extract ``archive`` into ``destination``."""
+    try:
+        with zipfile.ZipFile(archive) as zip_file:
+            zip_file.extractall(destination)
+    except zipfile.BadZipFile:
+        raise BookToPptxError(f"'{archive}' is not a valid zip archive.") from None
+
+
+def find_markdown(directory: Path) -> Path:
+    """Return the Markdown file to convert, preferring the shallowest match."""
+    matches = sorted(directory.rglob("*.md"), key=lambda p: (len(p.parts), str(p)))
+    if not matches:
+        raise BookToPptxError("No .md file found inside the archive.")
+    if len(matches) > 1:
+        logger.warning(
+            "Archive contains %d Markdown files; using '%s'.",
+            len(matches),
+            matches[0].relative_to(directory),
+        )
+    return matches[0]
+
+
+def convert(archive: Path, output: Path, use_template: bool = False) -> None:
+    """Convert ``archive`` to a PowerPoint deck saved at ``output``."""
+    with tempfile.TemporaryDirectory(prefix="book2pptx_") as scratch:
+        workdir = Path(scratch)
+
+        logger.info("Extracting %s", archive)
+        extract_archive(archive, workdir)
+
+        markdown_path = find_markdown(workdir)
+        logger.info("Processing %s", markdown_path.name)
+
+        # Table images are written into the working directory alongside the
+        # extracted assets and are removed with it.
+        presentation = MarkdownParser(assets_dir=workdir).parse(markdown_path)
+        deck = PowerPointRenderer(use_template=use_template).render(presentation)
+        deck.save(str(output))
+
+
+def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
+    arg_parser = argparse.ArgumentParser(
+        prog="book2pptx",
+        description="Convert a zipped Markdown export into a PowerPoint deck.",
+    )
+    arg_parser.add_argument(
+        "archive",
+        type=Path,
+        help="path to a .zip archive containing a Markdown file and its images; "
+        "relative paths are also searched for in the project folder",
+    )
+    arg_parser.add_argument(
+        "-t",
+        "--template",
+        action="store_true",
+        help="render with renderer/templates/Template.pptx",
+    )
+    arg_parser.add_argument(
+        "-o",
+        "--output",
+        type=Path,
+        help="output .pptx path (default: the archive name with a .pptx suffix)",
+    )
+    arg_parser.add_argument(
+        "-v", "--verbose", action="store_true", help="enable debug logging"
+    )
+    return arg_parser.parse_args(argv)
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = parse_args(argv)
+    logging.basicConfig(
+        level=logging.DEBUG if args.verbose else logging.INFO,
+        format="%(message)s",
+    )
+
+    if args.template:
+        logger.info("Using template mode.")
+
+    try:
+        archive = resolve_archive(args.archive)
+        output = (
+            args.output.expanduser() if args.output else archive.with_suffix(".pptx")
+        ).resolve()
+        convert(archive, output, use_template=args.template)
+    except (BookToPptxError, FileNotFoundError) as exc:
+        logger.error("Error: %s", exc)
+        return 1
+    except Exception:
+        logger.exception("Unexpected error during conversion.")
+        return 1
+
+    logger.info("Saved %s", output)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
+
+
+
+
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+||   markdown_parser.py   ||
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+
+"""Markdown parsing for book2pptx.
+
+Converts a Markdown document into a ``PresentationSpec``.
+
+!!! VERSION 1.0 code -> refactored by Claude from Ben's code !!!
+
+Supported syntax
+----------------
+``# Text``        First occurrence sets the presentation title; any later
+                  occurrence sets the closing slide title.
+``## Text``       Starts a new slide.
+``- Text``        Adds a bullet to the current slide.
+``![alt](path)``  Adds an image to the current slide. Relative paths are
+                  resolved against the directory of the Markdown file.
+``#### Text``     Adds a callout to the current slide. Each further callout in
+                  the same section starts a new slide that repeats the
+                  section title.
+``### Text``      Opens an ignored region. Content, including HTML tables, is
+                  skipped until the next ``#``, ``##``, or ``####`` line, or
+                  until another ``###`` line, which closes the region and is
+                  itself skipped. Wrap unwanted tables in a pair of ``###``
+                  lines to avoid rendering them.
+``<table>``       HTML tables are rendered to PNG and attached to the current
+                  slide as images.
+"""
+
+import logging
+import re
+from html.parser import HTMLParser
+from pathlib import Path
+
+import matplotlib
+
+matplotlib.use("Agg")  # Headless backend: no display or GUI toolkit required.
+import matplotlib.pyplot as plt  # noqa: E402  (must follow matplotlib.use)
+
+from parser.models.presentation_spec import PresentationSpec, SlideSpec  # noqa: E402
+
+logger = logging.getLogger(__name__)
+
+# Maximum characters per cell used when estimating column widths.
+HEADER_LIMIT = 20
+CELL_LIMIT = 40
+
+IMAGE_RE = re.compile(r"!\[(.*?)\]\((.*?)\)")
+
+# Heading prefixes that end an ignored region and are then parsed normally.
+# A '### ' line also ends the region, but it is consumed rather than parsed.
+IGNORE_TERMINATORS = ("# ", "## ", "#### ")
+
+DEFAULT_ASSETS_DIR = Path(__file__).resolve().parent.parent / "assets"
+
+
+class TableParser(HTMLParser):
+    """Extract the text content of an HTML table as a list of rows."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.rows: list[list[str]] = []
+        self._current_row: list[str] = []
+        self._current_cell: list[str] = []
+        self._in_cell = False
+
+    def handle_starttag(self, tag: str, attrs) -> None:
+        if tag in ("th", "td"):
+            self._in_cell = True
+            self._current_cell = []
+        elif tag == "tr":
+            self._current_row = []
+
+    def handle_data(self, data: str) -> None:
+        if self._in_cell:
+            self._current_cell.append(data)
+
+    def handle_endtag(self, tag: str) -> None:
+        if tag in ("th", "td"):
+            self._current_row.append("".join(self._current_cell).strip())
+            self._in_cell = False
+        elif tag == "tr" and self._current_row:
+            self.rows.append(self._current_row)
+
+
+class HTMLTableRenderer:
+    """Render an HTML table to a PNG image with Matplotlib.
+
+    The first row is treated as the header. Images are written to
+    ``output_dir`` as ``table_<n>.png``.
+    """
+
+    def __init__(self, output_dir: Path | str) -> None:
+        self.output_dir = Path(output_dir)
+        self.table_count = 0
+
+    def render(self, html_table: str) -> Path | None:
+        """Render ``html_table`` and return the PNG path, or None if it has no cells."""
+        parser = TableParser()
+        parser.feed(html_table)
+        rows = self._pad_rows(parser.rows)
+        if not rows:
+            logger.warning("Skipping HTML table that contains no cells.")
+            return None
+
+        header, data = rows[0], rows[1:]
+        column_widths = self._column_widths(header, data)
+
+        self.output_dir.mkdir(parents=True, exist_ok=True)
+        output_path = self.output_dir / f"table_{self.table_count}.png"
+        self.table_count += 1
+
+        fig, ax = plt.subplots()
+        try:
+            ax.axis("off")
+            table = ax.table(
+                cellText=data or [[""] * len(header)],
+                colLabels=header,
+                loc="center",
+                colWidths=column_widths,
+            )
+            table.auto_set_font_size(False)
+            table.set_fontsize(8)
+            table.scale(1, 1.2)
+            fig.savefig(output_path, bbox_inches="tight", dpi=200)
+        finally:
+            plt.close(fig)
+
+        return output_path
+
+    @staticmethod
+    def _pad_rows(rows: list[list[str]]) -> list[list[str]]:
+        """Pad ragged rows with empty cells so every row has the same length."""
+        if not rows:
+            return []
+        num_columns = max(len(row) for row in rows)
+        return [row + [""] * (num_columns - len(row)) for row in rows]
+
+    @staticmethod
+    def _truncate(text: str, limit: int) -> str:
+        return text if len(text) <= limit else text[: limit - 3] + "..."
+
+    @classmethod
+    def _column_widths(cls, header: list[str], data: list[list[str]]) -> list[float]:
+        """Estimate relative column widths from the longest cell in each column.
+
+        Cells are truncated to HEADER_LIMIT / CELL_LIMIT before measuring.
+        Matplotlib's table() does not account for header width when it computes
+        the rendered table geometry, so when a header is wider than the data in
+        its column the normalizing total is reduced to compensate.
+        """
+        display_rows = [[cls._truncate(c, HEADER_LIMIT) for c in header]]
+        display_rows += [[cls._truncate(c, CELL_LIMIT) for c in row] for row in data]
+
+        widths: list[int] = []
+        adjustment = 0.0
+        for col in range(len(header)):
+            widths.append(max(len(row[col]) for row in display_rows))
+
+            header_length = len(header[col])
+            data_length = max((len(row[col]) for row in data), default=0)
+            if data_length and header_length > data_length:
+                adjustment -= header_length / data_length
+
+        total = sum(widths) + adjustment
+        if total <= 0:
+            return [1 / len(widths)] * len(widths)  # Degenerate input: equal widths.
+        return [width / total for width in widths]
+
+
+class MarkdownParser:
+    """Parse a Markdown file into a ``PresentationSpec``."""
+
+    def __init__(self, assets_dir: Path | str | None = None) -> None:
+        self.assets_dir = Path(assets_dir) if assets_dir else DEFAULT_ASSETS_DIR
+        self.table_renderer = HTMLTableRenderer(self.assets_dir)
+        self.base_dir = Path()
+        self._reset()
+
+    def _reset(self) -> None:
+        """Clear per-document state so a parser instance can be reused."""
+        self.presentation_title = ""
+        self.closing_title = ""
+        self.slide_title = ""
+        self.slides: list[SlideSpec] = []
+        self.current_slide: SlideSpec | None = None
+        self._callout_seen = False  # True once the current section has a callout.
+
+    def parse_heading(self, line: str) -> None:
+        if line.startswith("# "):
+            self._callout_seen = False
+            text = line[2:].strip()
+            if not self.presentation_title:
+                self.presentation_title = text
+            else:
+                self.closing_title = text
+        elif line.startswith("## "):
+            self.slide_title = line[3:].strip()
+            logger.info("NEW SLIDE: %s", self.slide_title)
+            self.current_slide = SlideSpec(self.slide_title)
+            self.slides.append(self.current_slide)
+            self._callout_seen = False
+
+    def parse_ignore(self, line: str, in_ignore: bool) -> bool:
+        """Return True when a ``###`` line opens an ignored region."""
+        return in_ignore or line.startswith("### ")
+
+    def parse_bullet(self, line: str) -> None:
+        if line.startswith("- ") and self.current_slide:
+            self.current_slide.bullets.append(line[2:].strip())
+
+    def parse_image(self, line: str) -> None:
+        match = IMAGE_RE.search(line)
+        if match:
+            self.add_image(match.group(2))
+
+    def add_image(self, image_path: Path | str) -> None:
+        """Attach an image to the current slide as an absolute path."""
+        if self.current_slide is None:
+            logger.warning("Image found before the first slide was ignored: %s", image_path)
+            return
+        self.current_slide.images.append(str((self.base_dir / image_path).resolve()))
+
+    def parse_callouts(self, line: str) -> None:
+        if not line.startswith("#### "):
+            return
+        if self.current_slide is None:
+            logger.warning("Callout found before the first slide was ignored: %s", line)
+            return
+
+        text = line[5:].strip()
+        if self._callout_seen:
+            # Every callout after the first in a section gets its own slide,
+            # repeating the section title.
+            self.current_slide = SlideSpec(self.slide_title)
+            self.slides.append(self.current_slide)
+        self.current_slide.callouts.append(text)
+        self._callout_seen = True
+
+    def _flush_table(self, table_lines: list[str]) -> None:
+        image_path = self.table_renderer.render("\n".join(table_lines))
+        if image_path is not None:
+            self.add_image(image_path)
+
+    def parse(self, filename: Path | str) -> PresentationSpec:
+        path = Path(filename)
+        self.base_dir = path.parent
+        self._reset()
+
+        table_lines: list[str] = []
+        in_table = False
+        in_ignore = False
+
+        with path.open(encoding="utf-8") as f:
+            for raw_line in f:
+                line = raw_line.strip()
+                if not line:
+                    continue
+
+                if in_ignore:
+                    if line.startswith(IGNORE_TERMINATORS):
+                        in_ignore = False  # Resume normal parsing of this line.
+                    elif line.startswith("### "):
+                        in_ignore = False  # Closing marker: consume it and resume.
+                        continue
+                    else:
+                        continue
+
+                # Table markup may span many lines or sit on a single line.
+                if in_table or "<table" in line:
+                    in_table = True
+                    table_lines.append(line)
+                    if "</table>" in line:
+                        self._flush_table(table_lines)
+                        table_lines = []
+                        in_table = False
+                    continue
+
+                self.parse_heading(line)
+                self.parse_callouts(line)
+                self.parse_bullet(line)
+                self.parse_image(line)
+                in_ignore = self.parse_ignore(line, in_ignore)
+
+        return PresentationSpec(
+            title=self.presentation_title,
+            slides=self.slides,
+            closing_title=self.closing_title,
+        )
+
+
+
+
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+||   presentation_spec.py   ||
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+
+"""Data model for a parsed presentation.
+
+!!! VERSION 1.0 code -> refactored by Claude from Ben's code !!!
+
+The Markdown parser produces these objects and the PowerPoint renderer
+consumes them, so neither side needs to know about the other.
+"""
+
+from dataclasses import dataclass, field
+
+
+@dataclass(slots=True)
+class SlideSpec:
+    """Content of a single slide."""
+
+    title: str
+    bullets: list[str] = field(default_factory=list)
+    images: list[str] = field(default_factory=list)  # Absolute file paths.
+    callouts: list[str] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class PresentationSpec:
+    """Content of a whole deck: opening title, content slides, closing title."""
+
+    title: str
+    slides: list[SlideSpec] = field(default_factory=list)
+    closing_title: str = ""
+
+
+
+
+
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+||   pptx_renderer.py   ||
+~~~~~~~~~~~~~~~~~~~~~~~~~~
+
+
+
+"""PowerPoint rendering for book2pptx.
+
+!!! VERSION 1.0 code -> refactored by Claude from Ben's code !!!
+
+Turns a ``PresentationSpec`` into a python-pptx ``Presentation``. Two modes:
+
+* Plain (default): the default python-pptx presentation with black text.
+* Template: ``renderer/templates/Template.pptx`` with grey title/body blocks
+  drawn behind white text.
+"""
+
+from pathlib import Path
+
+from pptx import Presentation
+from pptx.dml.color import RGBColor
+from pptx.enum.shapes import MSO_SHAPE
+from pptx.enum.text import PP_ALIGN
+from pptx.util import Inches, Pt
+
+from parser.models.presentation_spec import PresentationSpec, SlideSpec
+
+TEMPLATE_PATH = Path(__file__).resolve().parent / "templates" / "Template.pptx"
+
+# Geometry. The template slides are wider than the default 4:3 slide.
+LEFT = Inches(0.7)
+BLOCK_WIDTH = Inches(8.6)
+BLOCK_WIDTH_TEMPLATE = Inches(9.6)
+TITLE_TOP = Inches(0.75)
+TITLE_HEIGHT = Inches(1.5)
+BODY_TOP = Inches(2.5)
+BODY_HEIGHT = Inches(4.5)
+CLOSING_TOP = Inches(0.9)
+CLOSING_HEIGHT = Inches(5.5)
+
+# Images start at IMAGE_ORIGIN and each further image shifts by IMAGE_STAGGER.
+IMAGE_ORIGIN = Inches(1)
+IMAGE_STAGGER = Inches(0.5)
+
+# Typography.
+TITLE_FONT_SIZE = Pt(42)
+BODY_FONT_SIZE = Pt(22)
+LIGHT_TEXT = RGBColor(255, 255, 255)
+DARK_TEXT = RGBColor(0, 0, 0)
+
+# Block styling (template mode).
+BLOCK_FILL = RGBColor(155, 155, 155)
+BLOCK_OUTLINE_WIDTH = Pt(2.5)
+BLOCK_OUTLINE_BRIGHTNESS = -0.15  # Outline is 15% darker than the fill.
+
+
+class PowerPointRenderer:
+    """Render a ``PresentationSpec`` to a PowerPoint deck."""
+
+    def __init__(self, use_template: bool = False) -> None:
+        self.use_template = use_template
+        self.block_width = BLOCK_WIDTH_TEMPLATE if use_template else BLOCK_WIDTH
+        self.text_color = LIGHT_TEXT if use_template else DARK_TEXT
+        # Slide layout used for every slide: index 1 in the template, index 0
+        # in the default presentation.
+        self.layout_index = 1 if use_template else 0
+
+    # -- Shared helpers ------------------------------------------------------
+
+    def _add_block(self, slide, top: int, height: int) -> None:
+        """Draw a filled, outlined rectangle behind the text."""
+        block = slide.shapes.add_shape(MSO_SHAPE.RECTANGLE, LEFT, top, self.block_width, height)
+        block.fill.solid()
+        block.fill.fore_color.rgb = BLOCK_FILL
+        block.line.color.rgb = BLOCK_FILL
+        block.line.color.brightness = BLOCK_OUTLINE_BRIGHTNESS
+        block.line.width = BLOCK_OUTLINE_WIDTH
+
+    def _add_text_frame(self, slide, top: int, height: int):
+        """Add a word-wrapped text box spanning the block width."""
+        text_box = slide.shapes.add_textbox(LEFT, top, self.block_width, height)
+        frame = text_box.text_frame
+        frame.word_wrap = True
+        return frame
+
+    def _write(self, paragraph, text: str, size, align) -> None:
+        """Write ``text`` into ``paragraph`` as a single styled run."""
+        paragraph.alignment = align
+        run = paragraph.add_run()
+        run.font.size = size
+        run.font.color.rgb = self.text_color
+        run.text = text
+
+    def _write_lines(self, frame, lines: list[str], size, align) -> None:
+        """Write each line as its own paragraph, reusing the frame's first one."""
+        for index, line in enumerate(lines):
+            paragraph = frame.paragraphs[0] if index == 0 else frame.add_paragraph()
+            self._write(paragraph, line, size, align)
+
+    # -- Blocks and text -----------------------------------------------------
+
+    def render_title_block(self, slide) -> None:
+        self._add_block(slide, TITLE_TOP, TITLE_HEIGHT)
+
+    def render_body_block(self, slide) -> None:
+        self._add_block(slide, BODY_TOP, BODY_HEIGHT)
+
+    def render_closing_block(self, slide) -> None:
+        self._add_block(slide, CLOSING_TOP, CLOSING_HEIGHT)
+
+    def render_title(self, slide, title: str) -> None:
+        frame = self._add_text_frame(slide, TITLE_TOP, TITLE_HEIGHT)
+        self._write(frame.paragraphs[0], title, TITLE_FONT_SIZE, PP_ALIGN.CENTER)
+
+    def render_closing(self, slide, title: str) -> None:
+        frame = self._add_text_frame(slide, CLOSING_TOP, CLOSING_HEIGHT)
+        self._write(frame.paragraphs[0], title, TITLE_FONT_SIZE, PP_ALIGN.CENTER)
+
+    def render_bullets(self, slide, slide_spec: SlideSpec) -> None:
+        if not slide_spec.bullets:
+            return
+        frame = self._add_text_frame(slide, BODY_TOP, BODY_HEIGHT)
+        lines = [f"- {bullet}" for bullet in slide_spec.bullets]
+        self._write_lines(frame, lines, BODY_FONT_SIZE, PP_ALIGN.LEFT)
+
+    def render_callouts(self, slide, slide_spec: SlideSpec) -> None:
+        if not slide_spec.callouts:
+            return
+        frame = self._add_text_frame(slide, BODY_TOP, BODY_HEIGHT)
+        self._write_lines(frame, slide_spec.callouts, BODY_FONT_SIZE, PP_ALIGN.LEFT)
+
+    def render_images(self, slide, slide_spec: SlideSpec) -> None:
+        for index, image_path in enumerate(slide_spec.images):
+            offset = IMAGE_ORIGIN + index * IMAGE_STAGGER
+            slide.shapes.add_picture(str(Path(image_path).resolve()), offset, offset)
+
+    # -- Deck assembly -------------------------------------------------------
+
+    def render(self, presentation_spec: PresentationSpec) -> Presentation:
+        if self.use_template:
+            if not TEMPLATE_PATH.is_file():
+                raise FileNotFoundError(f"Template not found at '{TEMPLATE_PATH}'.")
+            prs = Presentation(str(TEMPLATE_PATH))
+        else:
+            prs = Presentation()
+        layout = prs.slide_layouts[self.layout_index]
+
+        # Opening slide. The template ships with its title slide already in place.
+        if self.use_template:
+            slide = prs.slides[0]
+            self.render_title_block(slide)
+        else:
+            slide = prs.slides.add_slide(layout)
+        self.render_title(slide, presentation_spec.title)
+
+        for slide_spec in presentation_spec.slides:
+            slide = prs.slides.add_slide(layout)
+            if self.use_template:
+                self.render_title_block(slide)
+                self.render_body_block(slide)
+            self.render_title(slide, slide_spec.title)
+            self.render_callouts(slide, slide_spec)
+            self.render_bullets(slide, slide_spec)
+            self.render_images(slide, slide_spec)
+
+        # Closing slide.
+        slide = prs.slides.add_slide(layout)
+        if self.use_template:
+            self.render_closing_block(slide)
+        self.render_closing(slide, presentation_spec.closing_title)
+        return prs
+
+
+
