@@ -75,6 +75,3 @@ renderer/templates/Template.pptx  Template used with --template
 - A callout and bullets in the same section are placed in the same area of the slide and can overlap.
 - Font sizes are fixed (title 42 pt, body 22 pt); long text is not yet shrunk to fit.
 
-## License
-
-To be added.
